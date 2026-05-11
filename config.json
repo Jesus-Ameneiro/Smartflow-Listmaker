@@ -1,0 +1,39 @@
+{
+  "regions": {
+    "MCC": ["Mexico", "Guatemala", "Panama", "El Salvador", "Belize", "Honduras",
+            "Dominican Republic", "Nicaragua", "Costa Rica"],
+    "CS":  ["Argentina", "Ecuador", "Colombia", "Peru", "Paraguay", "Uruguay",
+            "Chile", "Bolivia"]
+  },
+  "known_countries": [
+    "Mexico", "Guatemala", "Panama", "El Salvador", "Belize", "Honduras",
+    "Dominican Republic", "Nicaragua", "Costa Rica",
+    "Argentina", "Ecuador", "Colombia", "Peru", "Paraguay", "Uruguay", "Chile", "Bolivia",
+    "Brazil", "Venezuela", "Cuba", "Haiti", "Jamaica", "Trinidad", "Barbados",
+    "Guyana", "Suriname", "Puerto Rico", "Cayman Islands", "Bahamas",
+    "United States", "USA", "Canada", "Spain", "Italy", "France", "Germany",
+    "United Kingdom", "Portugal", "Netherlands", "Belgium", "Switzerland",
+    "Australia", "New Zealand", "Japan", "China", "India", "South Korea",
+    "Singapore", "Philippines", "Indonesia", "Malaysia", "Thailand",
+    "South Africa", "Nigeria", "Kenya", "Egypt", "Morocco",
+    "Russia", "Ukraine", "Poland", "Czech Republic", "Romania", "Hungary",
+    "Sweden", "Norway", "Denmark", "Finland", "Austria", "Ireland",
+    "Turkey", "Israel", "United Arab Emirates", "Saudi Arabia",
+    "Pakistan", "Bangladesh", "Sri Lanka"
+  ],
+  "columns_must_be_empty": [
+    "Entity",
+    "Case Investigators",
+    "Investigation Status",
+    "Website",
+    "Industry",
+    "Actionable Domain",
+    "Region",
+    "Country",
+    "Source Status",
+    "Investigation Status Last Updated At"
+  ],
+  "github": {
+    "history_folder": "history"
+  }
+}
