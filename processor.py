@@ -141,7 +141,16 @@ def apply_filters(df, config, filters):
     lm = _lower_map(config["known_countries"])
     result = df.copy()
 
-    result = result[result["# Total Machines"] >= int(filters.get("min_machines", 3))]
+    min_m = int(filters.get("min_machines", 3))
+    max_m = filters.get("max_machines")
+    if max_m is not None:
+        max_m = int(max_m)
+        result = result[
+            (result["# Total Machines"] >= min_m) &
+            (result["# Total Machines"] <= max_m)
+        ]
+    else:
+        result = result[result["# Total Machines"] >= min_m]
 
     cutoff = filters.get("last_event_cutoff")
     if cutoff is not None:

@@ -385,12 +385,25 @@ country_counts  = country_distribution(df_work, KNOWN_COUNTRIES)
 country_options = list(country_counts.keys())
 
 st.subheader("Machine & Event Filters")
-r1c1, r1c2 = st.columns(2)
+r1c1, r1c2, r1c3 = st.columns(3)
 with r1c1:
     min_machines = st.number_input(
         "Minimum Total Machines", min_value=1, value=3, key="min_machines"
     )
 with r1c2:
+    use_max = st.checkbox("Set maximum machines", value=False, key="use_max_machines")
+    max_machines = None
+    if use_max:
+        max_machines = st.number_input(
+            "Maximum Total Machines",
+            min_value=min_machines,
+            value=max(min_machines, 10),
+            key="max_machines",
+            help="If equal to minimum, only cases with that exact machine count are selected.",
+        )
+        if max_machines == min_machines:
+            st.info(f"ℹ️ Exact match — only cases with **{min_machines}** machine(s) will be selected.")
+with r1c3:
     last_event_cutoff = st.date_input(
         "Last Event — earliest allowed date",
         value=date(2023, 1, 1),
@@ -487,6 +500,7 @@ if case_count > 100:
 if st.button("⚙️ Generate Batch", type="primary", use_container_width=True, key="gen_batch"):
     filters = {
         "min_machines":      min_machines,
+        "max_machines":      max_machines,
         "last_event_cutoff": last_event_cutoff,
         "include_tags":      include_tags,
         "exclude_tags":      exclude_tags,
