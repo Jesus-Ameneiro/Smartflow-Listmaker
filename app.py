@@ -391,18 +391,18 @@ with r1c1:
         "Minimum Total Machines", min_value=1, value=3, key="min_machines"
     )
 with r1c2:
-    use_max = st.checkbox("Set maximum machines", value=False, key="use_max_machines")
-    max_machines = None
-    if use_max:
-        max_machines = st.number_input(
-            "Maximum Total Machines",
-            min_value=min_machines,
-            value=max(min_machines, 10),
-            key="max_machines",
-            help="If equal to minimum, only cases with that exact machine count are selected.",
-        )
-        if max_machines == min_machines:
-            st.info(f"ℹ️ Exact match — only cases with **{min_machines}** machine(s) will be selected.")
+    max_machines = st.number_input(
+        "Maximum Total Machines",
+        min_value=1,
+        value=10,
+        key="max_machines",
+        help="Leave equal to minimum to select cases with that exact machine count.",
+    )
+    if max_machines < min_machines:
+        st.warning("⚠️ Maximum is less than minimum — no cases will match.")
+        max_machines = None
+    elif max_machines == min_machines:
+        st.info(f"Exact match: **{min_machines}** machine(s) only.")
 with r1c3:
     last_event_cutoff = st.date_input(
         "Last Event — earliest allowed date",
