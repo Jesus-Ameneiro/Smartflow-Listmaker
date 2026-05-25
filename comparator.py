@@ -145,11 +145,12 @@ def find_outdated_cases(sf_df, pl_df):
         pl_lookup["_last_event"]
     )
 
-    mask = (
-        common["_last_event"].notna() &
-        common["_pleteo_last_event"].notna() &
-        (common["_last_event"] > common["_pleteo_last_event"])
-    )
+    # Explicitly coerce both to pandas datetime64 before comparing.
+    # Pandas 3.0+ raises TypeError when comparing datetime64[us] (numpy-backed)
+    # against an object-dtype Series of Python datetime objects.
+    sf_last = pd.to_datetime(common["_last_event"], errors="coerce")
+    pl_last = pd.to_datetime(common["_pleteo_last_event"], errors="coerce")
+    mask = sf_last.notna() & pl_last.notna() & (sf_last > pl_last)
     result = common[mask].copy().reset_index(drop=True)
     return result
 
