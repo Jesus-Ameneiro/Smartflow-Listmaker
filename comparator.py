@@ -3,7 +3,6 @@ Smartflow Comparator — Processor
 Logic for comparing Smartflow downloads against Pleteo exports.
 """
 
-import io
 import re
 from datetime import datetime
 
@@ -21,20 +20,6 @@ def _parse_machines(val):
         return None
 
 
-def _parse_date(val, formats=None):
-    """Try multiple date formats, return datetime or NaT."""
-    if pd.isna(val) or str(val).strip() in ("", "-"):
-        return pd.NaT
-    s = str(val).strip()
-    fmts = formats or ["%d-%b-%y", "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%dT%H:%M:%S"]
-    for fmt in fmts:
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            continue
-    return pd.NaT
-
-
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
 def load_smartflow(uploaded_file):
@@ -43,8 +28,6 @@ def load_smartflow(uploaded_file):
     Returns a cleaned DataFrame with typed columns.
     """
     df = pd.read_csv(uploaded_file, low_memory=False)
-
-    # Normalise column names (strip whitespace)
     df.columns = [c.strip() for c in df.columns]
 
     required = {"Case ID", "No. ofMachines", "Last Event", "Country"}
@@ -52,12 +35,12 @@ def load_smartflow(uploaded_file):
     if missing:
         raise ValueError(f"Smartflow file is missing columns: {missing}")
 
-    df["_machines"] = df["No. ofMachines"].apply(_parse_machines)
+    df["_machines"]   = df["No. ofMachines"].apply(_parse_machines)
     df["_last_event"] = pd.to_datetime(
         df["Last Event"].astype(str).str.strip(), format="%d-%b-%y", errors="coerce"
     )
-    df["_case_id"] = df["Case ID"].astype(str).str.strip()
-    df["_country"] = df["Country"].astype(str).str.strip()
+    df["_case_id"]  = df["Case ID"].astype(str).str.strip()
+    df["_country"]  = df["Country"].astype(str).str.strip()
     return df
 
 
@@ -65,6 +48,7 @@ def load_pleteo(uploaded_file):
     """
     Load a Pleteo export (.csv or .xlsx).
     Returns a cleaned DataFrame with typed columns.
+    Extracts Investigation Status and Case Investigators when present.
     """
     name = uploaded_file.name.lower()
     if name.endswith(".csv"):
@@ -81,7 +65,7 @@ def load_pleteo(uploaded_file):
     if missing:
         raise ValueError(f"Pleteo file is missing columns: {missing}")
 
-    df["_case_id"] = df["External Case ID"].astype(str).str.strip()
+    df["_case_id"]    = df["External Case ID"].astype(str).str.strip()
     df["_last_event"] = pd.to_datetime(
         df["Last Event"].astype(str).str.strip(), errors="coerce"
     )
@@ -89,10 +73,24 @@ def load_pleteo(uploaded_file):
     machines_col = next(
         (c for c in df.columns if "total machines" in c.lower()), None
     )
-    if machines_col:
-        df["_machines"] = pd.to_numeric(df[machines_col], errors="coerce")
+    df["_machines"] = (
+        pd.to_numeric(df[machines_col], errors="coerce")
+        if machines_col else None
+    )
+
+    # Investigation Status — normalise: empty string → NaN
+    if "Investigation Status" in df.columns:
+        df["_inv_status"] = df["Investigation Status"].astype(str).str.strip()
+        df["_inv_status"] = df["_inv_status"].replace({"nan": None, "": None})
     else:
-        df["_machines"] = None
+        df["_inv_status"] = None
+
+    # Case Investigators — normalise
+    if "Case Investigators" in df.columns:
+        df["_investigator"] = df["Case Investigators"].astype(str).str.strip()
+        df["_investigator"] = df["_investigator"].replace({"nan": None, "": None})
+    else:
+        df["_investigator"] = None
 
     return df
 
@@ -120,11 +118,55 @@ def pleteo_country_dist(pl_df, known_countries):
     return dict(sorted(counts.items(), key=lambda x: -x[1]))
 
 
+# ── Pleteo Status Report ──────────────────────────────────────────────────────
+
+def pleteo_status_report(pl_df):
+    """
+    Summarise Investigation Status and Case Investigator presence in the
+    Pleteo file. Returns a dict with:
+        status_counts       dict  {status_label: count}  (None → 'No Status')
+        investigator_counts dict  {investigator_name: count}
+        cases_with_status   int
+        cases_with_inv      int
+    """
+    # Status distribution
+    status_series = pl_df["_inv_status"].copy()
+    status_series = status_series.fillna("No Status")
+    status_counts = status_series.value_counts().to_dict()
+
+    # Investigator distribution
+    inv_series = pl_df["_investigator"].dropna()
+    investigator_counts = inv_series.value_counts().to_dict()
+
+    return {
+        "status_counts":     status_counts,
+        "investigator_counts": investigator_counts,
+        "cases_with_status": int((pl_df["_inv_status"].notna()).sum()),
+        "cases_with_inv":    int((pl_df["_investigator"].notna()).sum()),
+    }
+
+
+def outdated_status_report(outd_df, pl_df):
+    """
+    For the outdated cases pool specifically, return the Investigation Status
+    distribution as found in the Pleteo file.
+    Returns a dict: {status_label: count}
+    """
+    pl_lookup = (
+        pl_df[["_case_id", "_inv_status", "_investigator"]]
+        .drop_duplicates("_case_id")
+        .set_index("_case_id")
+    )
+    statuses = outd_df["_case_id"].map(pl_lookup["_inv_status"]).fillna("No Status")
+    return statuses.value_counts().to_dict()
+
+
 # ── Core comparison ───────────────────────────────────────────────────────────
 
 def find_difference_cases(sf_df, pl_df):
     """
     Cases that exist in Smartflow but NOT in Pleteo.
+    Difference cases have no Investigation Status or Investigator by definition.
     Returns a DataFrame of Smartflow rows.
     """
     pleteo_ids = set(pl_df["_case_id"].dropna())
@@ -135,37 +177,49 @@ def find_difference_cases(sf_df, pl_df):
 def find_outdated_cases(sf_df, pl_df):
     """
     Cases that exist in BOTH files where Smartflow Last Event > Pleteo Last Event.
-    Returns a DataFrame of Smartflow rows enriched with Pleteo Last Event for comparison.
+    Enriched with Pleteo's Last Event, Investigation Status, and Investigator.
     """
     pl_lookup = (
-        pl_df[["_case_id", "_last_event"]]
+        pl_df[["_case_id", "_last_event", "_inv_status", "_investigator"]]
         .dropna(subset=["_case_id"])
         .drop_duplicates("_case_id")
         .set_index("_case_id")
     )
 
     common = sf_df[sf_df["_case_id"].isin(pl_lookup.index)].copy()
-    common["_pleteo_last_event"] = common["_case_id"].map(
-        pl_lookup["_last_event"]
-    )
+    common["_pleteo_last_event"] = common["_case_id"].map(pl_lookup["_last_event"])
+    common["_inv_status"]        = common["_case_id"].map(pl_lookup["_inv_status"])
+    common["_investigator"]      = common["_case_id"].map(pl_lookup["_investigator"])
 
-    # Explicitly coerce both to pandas datetime64 before comparing.
-    # Pandas 3.0+ raises TypeError when comparing datetime64[us] (numpy-backed)
-    # against an object-dtype Series of Python datetime objects.
+    # Pandas 3.0+ requires both sides to be datetime64 before comparison
     sf_last = pd.to_datetime(common["_last_event"], errors="coerce")
     pl_last = pd.to_datetime(common["_pleteo_last_event"], errors="coerce")
     mask = sf_last.notna() & pl_last.notna() & (sf_last > pl_last)
-    result = common[mask].copy().reset_index(drop=True)
-    return result
+    return common[mask].copy().reset_index(drop=True)
+
+
+def filter_outdated_by_status(outd_df, include_statuses):
+    """
+    Filter the outdated pool to only include cases whose Pleteo
+    Investigation Status is in include_statuses OR is null (no status).
+    include_statuses: list of status strings selected by the agent.
+                      Pass None or empty list to include everything.
+    """
+    if not include_statuses:
+        return outd_df.copy()
+
+    inc_set = set(include_statuses)
+    # Always include cases with no status; include those whose status matches
+    mask = outd_df["_inv_status"].isna() | outd_df["_inv_status"].isin(inc_set)
+    return outd_df[mask].copy().reset_index(drop=True)
 
 
 # ── History validation ────────────────────────────────────────────────────────
 
 def validate_comparator_history(case_ids, history_dfs, expiration_months, today):
     """
-    Return a dict: case_id → {batch_number, stored_at, times_stored}
+    Return a dict: case_id → {batch_numbers, stored_at, times_stored}
     Only cases stored within the expiration window are flagged.
-    Cases stored before the expiration cutoff are eligible again.
     """
     cutoff = today - relativedelta(months=int(expiration_months))
     result = {}
@@ -207,9 +261,7 @@ OUTPUT_COLS = [
 
 
 def build_output(sf_df, selected_ids):
-    """
-    Build the final output DataFrame from a set of selected Case IDs.
-    """
+    """Build the final output DataFrame from a set of selected Case IDs."""
     out = sf_df[sf_df["_case_id"].isin(selected_ids)].copy()
     keep = [c for c in OUTPUT_COLS if c in out.columns]
     return out[keep].reset_index(drop=True)
@@ -217,13 +269,13 @@ def build_output(sf_df, selected_ids):
 
 def select_by_country_distribution(sf_df, country_alloc):
     """
-    Given a dict {country: n_cases}, return a set of Case IDs
-    selecting up to n_cases per country (sorted by Last Event descending).
+    Given {country: n_cases}, return a set of Case IDs picking up to
+    n_cases per country sorted by Last Event descending.
     """
     selected = set()
     for country, n in country_alloc.items():
         pool = sf_df[sf_df["_country"] == country].copy()
         pool = pool.sort_values("_last_event", ascending=False)
-        ids = pool["_case_id"].head(int(n)).tolist()
+        ids  = pool["_case_id"].head(int(n)).tolist()
         selected.update(ids)
     return selected
