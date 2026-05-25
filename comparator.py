@@ -53,7 +53,9 @@ def load_smartflow(uploaded_file):
         raise ValueError(f"Smartflow file is missing columns: {missing}")
 
     df["_machines"] = df["No. ofMachines"].apply(_parse_machines)
-    df["_last_event"] = df["Last Event"].apply(_parse_date)
+    df["_last_event"] = pd.to_datetime(
+        df["Last Event"].astype(str).str.strip(), format="%d-%b-%y", errors="coerce"
+    )
     df["_case_id"] = df["Case ID"].astype(str).str.strip()
     df["_country"] = df["Country"].astype(str).str.strip()
     return df
@@ -80,7 +82,9 @@ def load_pleteo(uploaded_file):
         raise ValueError(f"Pleteo file is missing columns: {missing}")
 
     df["_case_id"] = df["External Case ID"].astype(str).str.strip()
-    df["_last_event"] = df["Last Event"].apply(_parse_date)
+    df["_last_event"] = pd.to_datetime(
+        df["Last Event"].astype(str).str.strip(), errors="coerce"
+    )
 
     machines_col = next(
         (c for c in df.columns if "total machines" in c.lower()), None
