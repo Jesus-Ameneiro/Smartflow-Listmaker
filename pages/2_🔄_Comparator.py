@@ -15,11 +15,14 @@ import streamlit as st
 
 from comparator import (
     build_output,
+    filter_outdated_by_status,
     find_difference_cases,
     find_outdated_cases,
     load_pleteo,
     load_smartflow,
+    outdated_status_report,
     pleteo_country_dist,
+    pleteo_status_report,
     select_by_country_distribution,
     smartflow_country_dist,
     validate_comparator_history,
@@ -34,9 +37,9 @@ from github_manager import (
 with open("config.json") as f:
     config = json.load(f)
 
-KNOWN_COUNTRIES  = config["known_countries"]
-HISTORY_FOLDER   = "history_comparator"
-MAX_CASES        = 100
+KNOWN_COUNTRIES = config["known_countries"]
+HISTORY_FOLDER  = "history_comparator"
+MAX_CASES       = 100
 
 # ── Page ──────────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -93,39 +96,33 @@ st.header("1. Upload Files")
 uc1, uc2 = st.columns(2)
 with uc1:
     sf_upload = st.file_uploader(
-        "Smartflow download (.csv)",
-        type=["csv"],
-        key="sf_upload",
+        "Smartflow download (.csv)", type=["csv"], key="sf_upload"
     )
 with uc2:
     pl_upload = st.file_uploader(
-        "Pleteo export (.csv or .xlsx)",
-        type=["csv", "xlsx"],
-        key="pl_upload",
+        "Pleteo export (.csv or .xlsx)", type=["csv", "xlsx"], key="pl_upload"
     )
 
-# Load Smartflow
 if sf_upload and sf_upload.name != st.session_state._sf_name:
     try:
         st.session_state._sf_df   = load_smartflow(sf_upload)
         st.session_state._sf_name = sf_upload.name
         st.session_state._diff_df = None
         st.session_state._outd_df = None
-        st.session_state._pre_result  = None
-        st.session_state._output_df   = None
+        st.session_state._pre_result     = None
+        st.session_state._output_df      = None
         st.session_state._confirmed_comp = False
     except Exception as e:
         st.error(f"Smartflow file error: {e}")
 
-# Load Pleteo
 if pl_upload and pl_upload.name != st.session_state._pl_name:
     try:
         st.session_state._pl_df   = load_pleteo(pl_upload)
         st.session_state._pl_name = pl_upload.name
         st.session_state._diff_df = None
         st.session_state._outd_df = None
-        st.session_state._pre_result  = None
-        st.session_state._output_df   = None
+        st.session_state._pre_result     = None
+        st.session_state._output_df      = None
         st.session_state._confirmed_comp = False
     except Exception as e:
         st.error(f"Pleteo file error: {e}")
@@ -146,7 +143,7 @@ st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 2 — COUNTRY REPORT
+# SECTION 2 — COUNTRY DISTRIBUTION
 # ─────────────────────────────────────────────────────────────────────────────
 st.header("2. Country Distribution")
 
@@ -157,22 +154,24 @@ cc1, cc2 = st.columns(2)
 with cc1:
     st.subheader("📡 Smartflow")
     if sf_countries:
-        sf_c_df = pd.DataFrame(
-            sf_countries.items(), columns=["Country", "Cases"]
-        ).sort_values("Cases", ascending=False)
         st.metric("Total Countries", len(sf_countries))
-        st.dataframe(sf_c_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame(sf_countries.items(), columns=["Country", "Cases"])
+              .sort_values("Cases", ascending=False),
+            use_container_width=True, hide_index=True,
+        )
     else:
         st.info("No country data found.")
 
 with cc2:
     st.subheader("📋 Pleteo (from Tags)")
     if pl_countries:
-        pl_c_df = pd.DataFrame(
-            pl_countries.items(), columns=["Country", "Cases"]
-        ).sort_values("Cases", ascending=False)
         st.metric("Total Countries", len(pl_countries))
-        st.dataframe(pl_c_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame(pl_countries.items(), columns=["Country", "Cases"])
+              .sort_values("Cases", ascending=False),
+            use_container_width=True, hide_index=True,
+        )
     else:
         st.info("No country data found.")
 
@@ -180,9 +179,55 @@ st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 3 — VALIDATE AGAINST HISTORY
+# SECTION 3 — PLETEO INVESTIGATION STATUS REPORT
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("3. Validate Against History")
+st.header("3. Pleteo — Investigation Status Report")
+st.caption(
+    "Status and investigator data sourced exclusively from the Pleteo file. "
+    "Difference cases (not in Pleteo) have no status or investigator by definition."
+)
+
+status_report = pleteo_status_report(pl_df)
+
+sm1, sm2 = st.columns(2)
+sm1.metric("Cases with Investigation Status", status_report["cases_with_status"])
+sm2.metric("Cases with Assigned Investigator", status_report["cases_with_inv"])
+
+sr_left, sr_right = st.columns(2)
+
+with sr_left:
+    st.subheader("📊 Cases per Investigation Status")
+    if status_report["status_counts"]:
+        st.dataframe(
+            pd.DataFrame(
+                status_report["status_counts"].items(),
+                columns=["Investigation Status", "Cases"],
+            ).sort_values("Cases", ascending=False),
+            use_container_width=True, hide_index=True,
+        )
+    else:
+        st.info("No Investigation Status data found.")
+
+with sr_right:
+    st.subheader("👤 Cases per Investigator")
+    if status_report["investigator_counts"]:
+        st.dataframe(
+            pd.DataFrame(
+                status_report["investigator_counts"].items(),
+                columns=["Investigator", "Cases"],
+            ).sort_values("Cases", ascending=False),
+            use_container_width=True, hide_index=True,
+        )
+    else:
+        st.info("No Case Investigator assignments found.")
+
+st.divider()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION 4 — VALIDATE AGAINST HISTORY
+# ─────────────────────────────────────────────────────────────────────────────
+st.header("4. Validate Against History")
 st.caption(
     "Cases confirmed within the expiration window will be excluded. "
     "Cases outside the window are eligible for inclusion again."
@@ -192,14 +237,11 @@ vh1, vh2, _ = st.columns([1, 1, 2])
 with vh1:
     exp_months = st.number_input(
         "Expiration window (months)",
-        min_value=1, max_value=24, value=3,
-        key="exp_months",
+        min_value=1, max_value=24, value=3, key="exp_months",
         help="Cases stored in history within this many months will be excluded.",
     )
 with vh2:
-    today_comp = st.date_input(
-        "Today's date", value=date.today(), key="today_comp"
-    )
+    today_comp = st.date_input("Today's date", value=date.today(), key="today_comp")
 today_comp_dt = datetime(today_comp.year, today_comp.month, today_comp.day)
 
 col_val, col_ref = st.columns([1, 4])
@@ -210,9 +252,9 @@ with col_val:
             st.session_state._comp_batches = get_all_batches(
                 token, repo, HISTORY_FOLDER
             )
-        batches = st.session_state._comp_batches
+        batches    = st.session_state._comp_batches
         all_sf_ids = set(sf_df["_case_id"].dropna())
-        excl = validate_comparator_history(
+        excl       = validate_comparator_history(
             all_sf_ids, batches, exp_months, today_comp_dt
         )
         st.session_state._excl_map = excl
@@ -253,11 +295,10 @@ st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 4 — COMPARISON REPORT
+# SECTION 5 — COMPARISON REPORT
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("4. Comparison Report")
+st.header("5. Comparison Report")
 
-# Apply exclusions to Smartflow pool
 sf_pool = sf_df[~sf_df["_case_id"].isin(excl_map.keys())].copy()
 
 if st.button("🔍 Run Comparison", type="primary", key="run_comparison"):
@@ -272,11 +313,10 @@ if diff_df is None or outd_df is None:
     st.info("Click **Run Comparison** to analyse both files.")
     st.stop()
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
 m1, m2, m3 = st.columns(3)
 m1.metric("Difference Cases", len(diff_df), help="In Smartflow, missing from Pleteo")
-m2.metric("Outdated Cases", len(outd_df),   help="In both; Smartflow Last Event is newer")
-m3.metric("Available Pool", len(sf_pool))
+m2.metric("Outdated Cases",   len(outd_df), help="In both; Smartflow Last Event is newer")
+m3.metric("Available Pool",   len(sf_pool))
 
 st.divider()
 
@@ -293,10 +333,15 @@ with st.expander(f"📋 Difference Cases — {len(diff_df):,} total", expanded=F
 with st.expander(f"⏰ Outdated Cases — {len(outd_df):,} total", expanded=False):
     outd_display = outd_df.copy()
     outd_display["Smartflow Last Event"] = outd_display["_last_event"].dt.strftime("%Y-%m-%d")
-    outd_display["Pleteo Last Event"]    = outd_display["_pleteo_last_event"].dt.strftime("%Y-%m-%d")
+    outd_display["Pleteo Last Event"]    = pd.to_datetime(
+        outd_display["_pleteo_last_event"], errors="coerce"
+    ).dt.strftime("%Y-%m-%d")
+    outd_display["Investigation Status"] = outd_display["_inv_status"].fillna("—")
+    outd_display["Investigator"]         = outd_display["_investigator"].fillna("—")
     outd_cols = [
         "Case ID", "Organization Name", "Country", "No. ofMachines",
-        "Smartflow Last Event", "Pleteo Last Event", "Case Status",
+        "Smartflow Last Event", "Pleteo Last Event",
+        "Investigation Status", "Investigator", "Case Status",
     ]
     st.dataframe(
         outd_display[[c for c in outd_cols if c in outd_display.columns]],
@@ -307,25 +352,78 @@ st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 5 — OUTPUT CONFIGURATION
+# SECTION 6 — OUTPUT CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("5. Output Configuration")
+st.header("6. Output Configuration")
 
-# ── Focus selection ───────────────────────────────────────────────────────────
+# ── Focus ─────────────────────────────────────────────────────────────────────
 st.subheader("Focus")
-focus_diff = st.checkbox("Include Difference cases", value=True, key="focus_diff")
+focus_diff = st.checkbox("Include Difference cases", value=True,  key="focus_diff")
 focus_outd = st.checkbox("Include Outdated cases",   value=False, key="focus_outd")
 
 if not focus_diff and not focus_outd:
     st.warning("⚠️ Select at least one focus to continue.")
     st.stop()
 
-# Merge pool based on selection
+# ── Outdated: Investigation Status filter (only visible when Outdated is selected) ──
+outd_filtered = outd_df.copy()
+
+if focus_outd and len(outd_df) > 0:
+    st.subheader("🔁 Outdated — Reinvestigation Status Filter")
+    st.caption(
+        "Outdated cases with an Investigation Status in Pleteo are shown below. "
+        "Cases with **No Status** are always included. "
+        "Select which statuses to also include for reinvestigation."
+    )
+
+    # Status breakdown of the outdated pool
+    outd_status_counts = outdated_status_report(outd_df, pl_df)
+    no_status_count    = outd_status_counts.pop("No Status", 0)
+    has_status_counts  = outd_status_counts  # remaining are real statuses
+
+    osm1, osm2 = st.columns(2)
+    osm1.metric("Outdated — No Status (always included)", no_status_count)
+    osm2.metric("Outdated — With Status", sum(has_status_counts.values()))
+
+    if has_status_counts:
+        st.dataframe(
+            pd.DataFrame(
+                has_status_counts.items(),
+                columns=["Investigation Status", "Outdated Cases"],
+            ).sort_values("Outdated Cases", ascending=False),
+            use_container_width=True, hide_index=True,
+        )
+
+        available_statuses = sorted(has_status_counts.keys())
+        include_statuses = st.multiselect(
+            "Include outdated cases with these Investigation Statuses (for reinvestigation)",
+            options=available_statuses,
+            default=[],
+            key="reinv_statuses",
+            help="Cases with no status are always included regardless of this selection.",
+        )
+        outd_filtered = filter_outdated_by_status(outd_df, include_statuses)
+
+        if include_statuses:
+            st.info(
+                f"ℹ️ Outdated pool after status filter: **{len(outd_filtered):,}** cases "
+                f"({no_status_count} without status + "
+                f"{len(outd_filtered) - no_status_count} with selected status)."
+            )
+        else:
+            st.info(
+                f"ℹ️ No status selected — only the **{no_status_count}** cases "
+                "without a status will be included from the outdated pool."
+            )
+    else:
+        st.success("✅ No outdated cases have an Investigation Status — all will be included.")
+
+# Build focused pool
 pool_ids = set()
 if focus_diff:
     pool_ids |= set(diff_df["_case_id"])
 if focus_outd:
-    pool_ids |= set(outd_df["_case_id"])
+    pool_ids |= set(outd_filtered["_case_id"])
 
 focused_pool = sf_pool[sf_pool["_case_id"].isin(pool_ids)].copy()
 
@@ -346,61 +444,65 @@ st.caption(
 available_countries = sorted(focused_pool["_country"].dropna().unique())
 country_case_counts = focused_pool["_country"].value_counts().to_dict()
 
-# Show country availability
-avail_df = pd.DataFrame([
-    {"Country": c, "Available Cases": country_case_counts.get(c, 0)}
-    for c in available_countries
-]).sort_values("Available Cases", ascending=False)
-
-with st.expander("📊 Available cases per country in focused pool", expanded=True):
-    st.dataframe(avail_df, use_container_width=True, hide_index=True)
-
-selected_countries = st.multiselect(
-    "Select countries for output",
-    options=available_countries,
-    default=[],
-    key="out_countries",
-)
-
-country_alloc = {}
-total_requested = 0
-
-if selected_countries:
-    st.markdown("**Cases to include per country:**")
-    alloc_cols = st.columns(min(len(selected_countries), 4))
-    for i, country in enumerate(selected_countries):
-        available = country_case_counts.get(country, 0)
-        with alloc_cols[i % 4]:
-            n = st.number_input(
-                f"{country}",
-                min_value=0,
-                max_value=available,
-                value=min(10, available),
-                key=f"alloc_{country}",
-                help=f"{available} available",
-            )
-            country_alloc[country] = n
-    total_requested = sum(country_alloc.values())
-
-    # Running total indicator
-    if total_requested > MAX_CASES:
-        st.error(
-            f"⛔ Total requested: **{total_requested}** cases — "
-            f"exceeds the Smartflow limit of **{MAX_CASES}**. "
-            "Reduce the allocation before generating."
+if available_countries:
+    with st.expander("📊 Available cases per country in focused pool", expanded=True):
+        st.dataframe(
+            pd.DataFrame([
+                {"Country": c, "Available Cases": country_case_counts.get(c, 0)}
+                for c in available_countries
+            ]).sort_values("Available Cases", ascending=False),
+            use_container_width=True, hide_index=True,
         )
-    elif total_requested == 0:
-        st.warning("⚠️ All country allocations are set to 0.")
-    else:
-        st.success(f"✅ Total requested: **{total_requested}** / {MAX_CASES} cases.")
+
+    selected_countries = st.multiselect(
+        "Select countries for output",
+        options=available_countries,
+        default=[],
+        key="out_countries",
+    )
+
+    country_alloc  = {}
+    total_requested = 0
+
+    if selected_countries:
+        st.markdown("**Cases to include per country:**")
+        alloc_cols = st.columns(min(len(selected_countries), 4))
+        for i, country in enumerate(selected_countries):
+            available = country_case_counts.get(country, 0)
+            with alloc_cols[i % 4]:
+                n = st.number_input(
+                    country,
+                    min_value=0, max_value=available,
+                    value=min(10, available),
+                    key=f"alloc_{country}",
+                    help=f"{available} available",
+                )
+                country_alloc[country] = n
+        total_requested = sum(country_alloc.values())
+
+        if total_requested > MAX_CASES:
+            st.error(
+                f"⛔ Total requested: **{total_requested}** — "
+                f"exceeds the Smartflow limit of **{MAX_CASES}**. "
+                "Reduce the allocation before generating."
+            )
+        elif total_requested == 0:
+            st.warning("⚠️ All country allocations are set to 0.")
+        else:
+            st.success(f"✅ Total requested: **{total_requested}** / {MAX_CASES} cases.")
+else:
+    st.info("No countries available in the focused pool.")
+    selected_countries = []
+    country_alloc      = {}
+    total_requested    = 0
 
 st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 6 — PREVIEW & GENERATE
+# SECTION 7 — PREVIEW & GENERATE
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("6. Preview & Generate")
+st.header("7. Preview & Generate")
 
 can_generate = (
     selected_countries
@@ -417,15 +519,12 @@ if st.button(
     selected_ids = select_by_country_distribution(focused_pool, country_alloc)
     pre_result   = build_output(sf_pool, selected_ids)
 
-    # Tag each row with its focus type
     diff_ids = set(diff_df["_case_id"])
-    outd_ids = set(outd_df["_case_id"])
+    outd_ids = set(outd_filtered["_case_id"])
     def _tag(cid):
         parts = []
-        if cid in diff_ids:
-            parts.append("Difference")
-        if cid in outd_ids:
-            parts.append("Outdated")
+        if cid in diff_ids: parts.append("Difference")
+        if cid in outd_ids: parts.append("Outdated")
         return " + ".join(parts) if parts else "—"
     pre_result["Type"] = pre_result["Case ID"].apply(_tag)
 
@@ -439,9 +538,9 @@ if pre_result is not None:
     st.subheader("Preview")
     type_counts = pre_result["Type"].value_counts().to_dict()
     pm1, pm2, pm3 = st.columns(3)
-    pm1.metric("Total Cases",     len(pre_result))
-    pm2.metric("Difference",      type_counts.get("Difference", 0))
-    pm3.metric("Outdated",        type_counts.get("Outdated", 0))
+    pm1.metric("Total Cases",  len(pre_result))
+    pm2.metric("Difference",   type_counts.get("Difference", 0))
+    pm3.metric("Outdated",     type_counts.get("Outdated", 0))
 
     preview_cols = [
         "Case ID", "Organization Name", "Country",
@@ -449,15 +548,10 @@ if pre_result is not None:
     ]
     st.dataframe(
         pre_result[[c for c in preview_cols if c in pre_result.columns]],
-        use_container_width=True,
-        hide_index=True,
+        use_container_width=True, hide_index=True,
     )
 
-    if st.button(
-        "⚙️ Generate Output File",
-        type="primary",
-        key="gen_output",
-    ):
+    if st.button("⚙️ Generate Output File", type="primary", key="gen_output"):
         st.session_state._output_df      = pre_result.drop(columns=["Type"])
         st.session_state._confirmed_comp = False
 
@@ -476,9 +570,9 @@ if output_df is not None:
     st.divider()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # SECTION 7 — CONFIRM & SAVE TO HISTORY
+    # SECTION 8 — CONFIRM & SAVE TO HISTORY
     # ─────────────────────────────────────────────────────────────────────────
-    st.header("7. Confirm & Save to History")
+    st.header("8. Confirm & Save to History")
     st.caption(
         "Confirming saves this output as a history record. "
         "These cases will be excluded from future outputs within the expiration window."
@@ -491,10 +585,8 @@ if output_df is not None:
             key="confirm_comp",
         ):
             token, repo = _require_creds()
-            # Store using Case ID column so history reader can find it
-            save_df = output_df.rename(columns={"Case ID": "Case ID"})
             with st.spinner("Pushing to GitHub…"):
-                ok, fname = push_batch(save_df, token, repo, HISTORY_FOLDER)
+                ok, fname = push_batch(output_df, token, repo, HISTORY_FOLDER)
             if ok:
                 st.session_state._confirmed_comp = True
                 st.session_state._comp_batches   = None
@@ -509,9 +601,9 @@ if output_df is not None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 8 — HISTORY VIEWER
+# SECTION 9 — HISTORY VIEWER
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("8. Comparator History")
+st.header("9. Comparator History")
 st.caption(
     "All confirmed comparator outputs stored in GitHub. "
     "Batch numbers are derived from chronological order."
@@ -560,7 +652,6 @@ else:
                     st.error("❌ Deletion failed.")
             st.divider()
 
-        # ── Inspect individual batch ──────────────────────────────────────────
         sel_num = st.selectbox(
             "Inspect batch",
             options=[b["number"] for b in batches],
