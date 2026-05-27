@@ -134,10 +134,44 @@ if sf_df is None or pl_df is None:
     st.info("Upload both files to begin.")
     st.stop()
 
-st.success(
-    f"✅ Files loaded — Smartflow: **{len(sf_df):,}** cases | "
-    f"Pleteo: **{len(pl_df):,}** cases"
-)
+# ── File identity cards ───────────────────────────────────────────────────────
+fi1, fi2 = st.columns(2)
+
+with fi1:
+    sf_le_min = sf_df["_last_event"].min()
+    sf_le_max = sf_df["_last_event"].max()
+    st.success(
+        f"📡 **Smartflow** — `{st.session_state._sf_name}`\n\n"
+        f"- Cases: **{len(sf_df):,}**\n"
+        f"- Unique Case IDs: **{sf_df['_case_id'].nunique():,}**\n"
+        f"- Last Event range: "
+        f"**{sf_le_min.strftime('%Y-%m-%d') if pd.notna(sf_le_min) else '—'}** → "
+        f"**{sf_le_max.strftime('%Y-%m-%d') if pd.notna(sf_le_max) else '—'}**"
+    )
+
+with fi2:
+    pl_le_min = pl_df["_last_event"].min()
+    pl_le_max = pl_df["_last_event"].max()
+    pl_note = ""
+    if len(pl_df) < 5000:
+        pl_note = "\n\n⚠️ **Small file detected — verify this is the full Pleteo export.**"
+    st.success(
+        f"📋 **Pleteo** — `{st.session_state._pl_name}`\n\n"
+        f"- Cases: **{len(pl_df):,}**\n"
+        f"- Unique Case IDs: **{pl_df['_case_id'].nunique():,}**\n"
+        f"- Last Event range: "
+        f"**{pl_le_min.strftime('%Y-%m-%d') if pd.notna(pl_le_min) else '—'}** → "
+        f"**{pl_le_max.strftime('%Y-%m-%d') if pd.notna(pl_le_max) else '—'}**"
+        f"{pl_note}"
+    )
+
+if len(pl_df) < 5000:
+    st.warning(
+        f"⚠️ The Pleteo file contains only **{len(pl_df):,}** cases. "
+        "If this is a partial or filtered export, Difference cases will be inflated — "
+        "cases that exist in the full Pleteo database will appear as missing. "
+        "**Upload the complete Pleteo export before running the comparison.**"
+    )
 
 st.divider()
 
