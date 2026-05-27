@@ -200,17 +200,20 @@ def find_outdated_cases(sf_df, pl_df):
 
 def filter_outdated_by_status(outd_df, include_statuses):
     """
-    Filter the outdated pool to only include cases whose Pleteo
-    Investigation Status is in include_statuses OR is null (no status).
-    include_statuses: list of status strings selected by the agent.
-                      Pass None or empty list to include everything.
+    Filter the outdated pool to the selected statuses only.
+    'No Status' is treated as a regular selectable option (not auto-included).
+    Pass None or empty list to include ALL cases with no filtering.
     """
     if not include_statuses:
         return outd_df.copy()
 
     inc_set = set(include_statuses)
-    # Always include cases with no status; include those whose status matches
-    mask = outd_df["_inv_status"].isna() | outd_df["_inv_status"].isin(inc_set)
+    include_no_status = "No Status" in inc_set
+
+    mask = outd_df["_inv_status"].isin(inc_set - {"No Status"})
+    if include_no_status:
+        mask = mask | outd_df["_inv_status"].isna()
+
     return outd_df[mask].copy().reset_index(drop=True)
 
 
