@@ -369,54 +369,53 @@ if not focus_diff and not focus_outd:
 outd_filtered = outd_df.copy()
 
 if focus_outd and len(outd_df) > 0:
-    st.subheader("🔁 Outdated — Reinvestigation Status Filter")
+    st.subheader("🔁 Outdated — Investigation Status Filter")
     st.caption(
-        "Outdated cases with an Investigation Status in Pleteo are shown below. "
-        "Cases with **No Status** are always included. "
-        "Select which statuses to also include for reinvestigation."
+        "Select which Investigation Statuses to include in the outdated pool. "
+        "**No Status** is a regular option. If nothing is selected, all outdated cases are included."
     )
 
-    # Status breakdown of the outdated pool
+    # Status breakdown of the outdated pool (No Status is a regular entry here)
     outd_status_counts = outdated_status_report(outd_df, pl_df)
-    no_status_count    = outd_status_counts.pop("No Status", 0)
-    has_status_counts  = outd_status_counts  # remaining are real statuses
 
+    # Summary metrics
+    no_status_count  = outd_status_counts.get("No Status", 0)
+    has_status_count = sum(v for k, v in outd_status_counts.items() if k != "No Status")
     osm1, osm2 = st.columns(2)
-    osm1.metric("Outdated — No Status (always included)", no_status_count)
-    osm2.metric("Outdated — With Status", sum(has_status_counts.values()))
+    osm1.metric("Outdated — No Status", no_status_count)
+    osm2.metric("Outdated — With Status", has_status_count)
 
-    if has_status_counts:
-        st.dataframe(
-            pd.DataFrame(
-                has_status_counts.items(),
-                columns=["Investigation Status", "Outdated Cases"],
-            ).sort_values("Outdated Cases", ascending=False),
-            use_container_width=True, hide_index=True,
-        )
+    # Full status breakdown table
+    st.dataframe(
+        pd.DataFrame(
+            outd_status_counts.items(),
+            columns=["Investigation Status", "Outdated Cases"],
+        ).sort_values("Outdated Cases", ascending=False),
+        use_container_width=True, hide_index=True,
+    )
 
-        available_statuses = sorted(has_status_counts.keys())
-        include_statuses = st.multiselect(
-            "Include outdated cases with these Investigation Statuses (for reinvestigation)",
-            options=available_statuses,
-            default=[],
-            key="reinv_statuses",
-            help="Cases with no status are always included regardless of this selection.",
-        )
-        outd_filtered = filter_outdated_by_status(outd_df, include_statuses)
+    # Multiselect — all statuses including No Status, default = all selected
+    all_statuses = sorted(outd_status_counts.keys())
+    include_statuses = st.multiselect(
+        "Include cases with these statuses",
+        options=all_statuses,
+        default=all_statuses,
+        key="reinv_statuses",
+        help="Deselect any status to exclude those cases from the outdated pool.",
+    )
 
-        if include_statuses:
-            st.info(
-                f"ℹ️ Outdated pool after status filter: **{len(outd_filtered):,}** cases "
-                f"({no_status_count} without status + "
-                f"{len(outd_filtered) - no_status_count} with selected status)."
-            )
-        else:
-            st.info(
-                f"ℹ️ No status selected — only the **{no_status_count}** cases "
-                "without a status will be included from the outdated pool."
-            )
+    outd_filtered = filter_outdated_by_status(outd_df, include_statuses)
+
+    if not include_statuses:
+        st.warning("⚠️ No statuses selected — all outdated cases will be included.")
+    elif set(include_statuses) == set(all_statuses):
+        st.info(f"ℹ️ All statuses selected — **{len(outd_filtered):,}** outdated cases included.")
     else:
-        st.success("✅ No outdated cases have an Investigation Status — all will be included.")
+        excluded_statuses = set(all_statuses) - set(include_statuses)
+        st.info(
+            f"ℹ️ Outdated pool after filter: **{len(outd_filtered):,}** cases. "
+            f"Excluded statuses: {', '.join(sorted(excluded_statuses))}."
+        )
 
 # Build focused pool
 pool_ids = set()
@@ -427,9 +426,53 @@ if focus_outd:
 
 focused_pool = sf_pool[sf_pool["_case_id"].isin(pool_ids)].copy()
 
+st.divider()
+
+# ── Machine filter ────────────────────────────────────────────────────────────
+st.subheader("Machine Filter")
+st.caption(
+    "Filter the focused pool by machine count before selecting countries. "
+    "Cases outside the range will not appear in the country distribution."
+)
+
+pool_machines = focused_pool["_machines"].dropna()
+machine_min_possible = int(pool_machines.min()) if len(pool_machines) else 1
+machine_max_possible = int(pool_machines.max()) if len(pool_machines) else 100
+
+mf1, mf2 = st.columns(2)
+with mf1:
+    mach_min = st.number_input(
+        "Minimum Machines",
+        min_value=machine_min_possible,
+        max_value=machine_max_possible,
+        value=machine_min_possible,
+        key="comp_mach_min",
+    )
+with mf2:
+    mach_max = st.number_input(
+        "Maximum Machines",
+        min_value=machine_min_possible,
+        max_value=machine_max_possible,
+        value=machine_max_possible,
+        key="comp_mach_max",
+    )
+
+if mach_max < mach_min:
+    st.warning("⚠️ Maximum is less than minimum — no cases will match.")
+    focused_pool = focused_pool.iloc[0:0]  # empty
+elif mach_max == mach_min:
+    st.info(f"Exact match: only cases with **{mach_min}** machine(s).")
+    focused_pool = focused_pool[focused_pool["_machines"] == mach_min].copy()
+else:
+    focused_pool = focused_pool[
+        (focused_pool["_machines"] >= mach_min) &
+        (focused_pool["_machines"] <= mach_max)
+    ].copy()
+
 st.info(
-    f"Combined pool from selected focus: **{len(focused_pool):,}** cases "
-    f"across **{focused_pool['_country'].nunique()}** countries."
+    f"Pool after machine filter: **{len(focused_pool):,}** cases "
+    f"({mach_min}–{mach_max} machines) across "
+    f"**{focused_pool['_country'].nunique()}** countries."
 )
 
 st.divider()
