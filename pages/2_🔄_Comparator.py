@@ -401,95 +401,96 @@ if not focus_diff and not focus_outd:
     st.warning("⚠️ Select at least one focus to continue.")
     st.stop()
 
-# ── Outdated: Investigation Status filter (only visible when Outdated is selected) ──
-outd_filtered = outd_df.copy()
+# ── Outdated filters — only visible when Outdated focus is selected ──────────
+# Initialise outd_filtered as empty; only populated when focus_outd is active.
+outd_filtered = pd.DataFrame(columns=outd_df.columns) if not focus_outd else outd_df.copy()
 
-if focus_outd and len(outd_df) > 0:
-    st.subheader("🔁 Outdated — Investigation Status Filter")
-    st.caption(
-        "Select which Investigation Statuses to include in the outdated pool. "
-        "**No Status** is a regular option. If nothing is selected, all outdated cases are included."
-    )
-
-    # Status breakdown of the outdated pool (No Status is a regular entry here)
-    outd_status_counts = outdated_status_report(outd_df, pl_df)
-
-    # Summary metrics
-    no_status_count  = outd_status_counts.get("No Status", 0)
-    has_status_count = sum(v for k, v in outd_status_counts.items() if k != "No Status")
-    osm1, osm2 = st.columns(2)
-    osm1.metric("Outdated — No Status", no_status_count)
-    osm2.metric("Outdated — With Status", has_status_count)
-
-    # Full status breakdown table
-    st.dataframe(
-        pd.DataFrame(
-            outd_status_counts.items(),
-            columns=["Investigation Status", "Outdated Cases"],
-        ).sort_values("Outdated Cases", ascending=False),
-        use_container_width=True, hide_index=True,
-    )
-
-    # Multiselect — all statuses including No Status, default = all selected
-    all_statuses = sorted(outd_status_counts.keys())
-    include_statuses = st.multiselect(
-        "Include cases with these statuses",
-        options=all_statuses,
-        default=all_statuses,
-        key="reinv_statuses",
-        help="Deselect any status to exclude those cases from the outdated pool.",
-    )
-
-    outd_filtered = filter_outdated_by_status(outd_df, include_statuses)
-
-    if not include_statuses:
-        st.warning("⚠️ No statuses selected — all outdated cases will be included.")
-    elif set(include_statuses) == set(all_statuses):
-        st.info(f"ℹ️ All statuses selected — **{len(outd_filtered):,}** outdated cases included.")
+if focus_outd:
+    if len(outd_df) == 0:
+        st.info("ℹ️ No outdated cases found in the current dataset.")
     else:
-        excluded_statuses = set(all_statuses) - set(include_statuses)
-        st.info(
-            f"ℹ️ Outdated pool after filter: **{len(outd_filtered):,}** cases. "
-            f"Excluded statuses: {', '.join(sorted(excluded_statuses))}."
+        # ── Status Filter ─────────────────────────────────────────────────────
+        st.subheader("🔁 Outdated — Investigation Status Filter")
+        st.caption(
+            "Select which Investigation Statuses to include in the outdated pool. "
+            "**No Status** is a regular option. If nothing is selected, all outdated cases are included."
         )
 
-# ── Outdated: Tag filter ──────────────────────────────────────────────────────
-if focus_outd and len(outd_filtered) > 0:
-    st.subheader("🏷️ Outdated — Tag Filter")
-    st.caption(
-        "Filter the outdated pool by Pleteo tags. "
-        "Include and exclude filters can be applied simultaneously."
-    )
+        outd_status_counts = outdated_status_report(outd_df, pl_df)
+        no_status_count    = outd_status_counts.get("No Status", 0)
+        has_status_count   = sum(v for k, v in outd_status_counts.items() if k != "No Status")
 
-    available_tags = extract_tags_from_outdated(outd_filtered)
+        osm1, osm2 = st.columns(2)
+        osm1.metric("Outdated — No Status", no_status_count)
+        osm2.metric("Outdated — With Status", has_status_count)
 
-    if available_tags:
-        tf1, tf2 = st.columns(2)
-        with tf1:
-            include_tags = st.multiselect(
-                "Include — case must have ANY of these tags",
-                options=available_tags,
-                default=[],
-                key="outd_inc_tags",
-                help="Leave empty to skip this filter.",
-            )
-        with tf2:
-            exclude_tags = st.multiselect(
-                "Exclude — remove cases with ANY of these tags",
-                options=available_tags,
-                default=[],
-                key="outd_exc_tags",
-                help="Leave empty to skip this filter.",
-            )
+        st.dataframe(
+            pd.DataFrame(
+                outd_status_counts.items(),
+                columns=["Investigation Status", "Outdated Cases"],
+            ).sort_values("Outdated Cases", ascending=False),
+            use_container_width=True, hide_index=True,
+        )
 
-        outd_filtered = filter_outdated_by_tags(outd_filtered, include_tags, exclude_tags)
+        all_statuses = sorted(outd_status_counts.keys())
+        include_statuses = st.multiselect(
+            "Include cases with these statuses",
+            options=all_statuses,
+            default=all_statuses,
+            key="reinv_statuses",
+            help="Deselect any status to exclude those cases from the outdated pool.",
+        )
 
-        if include_tags or exclude_tags:
+        outd_filtered = filter_outdated_by_status(outd_df, include_statuses)
+
+        if not include_statuses:
+            st.warning("⚠️ No statuses selected — all outdated cases will be included.")
+            outd_filtered = outd_df.copy()
+        elif set(include_statuses) == set(all_statuses):
+            st.info(f"ℹ️ All statuses selected — **{len(outd_filtered):,}** outdated cases included.")
+        else:
+            excluded_statuses = set(all_statuses) - set(include_statuses)
             st.info(
-                f"ℹ️ Outdated pool after tag filter: **{len(outd_filtered):,}** cases."
+                f"ℹ️ Outdated pool after status filter: **{len(outd_filtered):,}** cases. "
+                f"Excluded: {', '.join(sorted(excluded_statuses))}."
             )
-    else:
-        st.info("No tags found in the current outdated pool.")
+
+        # ── Tag Filter ────────────────────────────────────────────────────────
+        st.subheader("🏷️ Outdated — Tag Filter")
+        st.caption(
+            "Filter the outdated pool by Pleteo tags. "
+            "Include and exclude filters can be applied simultaneously."
+        )
+
+        available_tags = extract_tags_from_outdated(outd_filtered)
+
+        if available_tags:
+            tf1, tf2 = st.columns(2)
+            with tf1:
+                include_tags = st.multiselect(
+                    "Include — case must have ANY of these tags",
+                    options=available_tags,
+                    default=[],
+                    key="outd_inc_tags",
+                    help="Leave empty to skip this filter.",
+                )
+            with tf2:
+                exclude_tags = st.multiselect(
+                    "Exclude — remove cases with ANY of these tags",
+                    options=available_tags,
+                    default=[],
+                    key="outd_exc_tags",
+                    help="Leave empty to skip this filter.",
+                )
+
+            outd_filtered = filter_outdated_by_tags(outd_filtered, include_tags, exclude_tags)
+
+            if include_tags or exclude_tags:
+                st.info(
+                    f"ℹ️ Outdated pool after tag filter: **{len(outd_filtered):,}** cases."
+                )
+        else:
+            st.info("No tags found in the current outdated pool.")
 
 # Build focused pool
 pool_ids = set()
