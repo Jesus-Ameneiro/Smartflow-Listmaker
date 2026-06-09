@@ -709,10 +709,10 @@ if available_countries:
         total_requested = sum(country_alloc.values())
 
         if total_requested > MAX_CASES:
-            st.error(
-                f"⛔ Total requested: **{total_requested}** — "
-                f"exceeds the Smartflow limit of **{MAX_CASES}**. "
-                "Reduce the allocation before generating."
+            st.warning(
+                f"⚠️ Total requested: **{total_requested}** cases — "
+                f"exceeds the recommended limit of **{MAX_CASES}**. "
+                "Check the override option below to generate anyway."
             )
         elif total_requested == 0:
             st.warning("⚠️ All country allocations are set to 0.")
@@ -732,10 +732,18 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 st.header("8. Preview & Generate")
 
+override_limit = False
+if total_requested > MAX_CASES:
+    override_limit = st.checkbox(
+        f"I understand this exceeds {MAX_CASES} cases — generate anyway ({total_requested} cases)",
+        value=False,
+        key="override_limit",
+    )
+
 can_generate = (
     selected_countries
     and total_requested > 0
-    and total_requested <= MAX_CASES
+    and (total_requested <= MAX_CASES or override_limit)
 )
 
 if st.button(
