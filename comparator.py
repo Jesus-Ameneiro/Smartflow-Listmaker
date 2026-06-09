@@ -92,6 +92,12 @@ def load_pleteo(uploaded_file):
     else:
         df["_investigator"] = None
 
+    # Tags — keep raw string for tag filtering
+    if "Tags" in df.columns:
+        df["_tags"] = df["Tags"].astype(str).str.strip().replace({"nan": None, "": None})
+    else:
+        df["_tags"] = None
+
     return df
 
 
@@ -180,7 +186,7 @@ def find_outdated_cases(sf_df, pl_df):
     Enriched with Pleteo's Last Event, Investigation Status, and Investigator.
     """
     pl_lookup = (
-        pl_df[["_case_id", "_last_event", "_inv_status", "_investigator"]]
+        pl_df[["_case_id", "_last_event", "_inv_status", "_investigator", "_tags"]]
         .dropna(subset=["_case_id"])
         .drop_duplicates("_case_id")
         .set_index("_case_id")
@@ -190,6 +196,7 @@ def find_outdated_cases(sf_df, pl_df):
     common["_pleteo_last_event"] = common["_case_id"].map(pl_lookup["_last_event"])
     common["_inv_status"]        = common["_case_id"].map(pl_lookup["_inv_status"])
     common["_investigator"]      = common["_case_id"].map(pl_lookup["_investigator"])
+    common["_tags"]              = common["_case_id"].map(pl_lookup["_tags"])
 
     # Pandas 3.0+ requires both sides to be datetime64 before comparison
     sf_last = pd.to_datetime(common["_last_event"], errors="coerce")
@@ -215,6 +222,45 @@ def filter_outdated_by_status(outd_df, include_statuses):
         mask = mask | outd_df["_inv_status"].isna()
 
     return outd_df[mask].copy().reset_index(drop=True)
+
+
+def extract_tags_from_outdated(outd_df):
+    """Return sorted list of all unique tags present in the outdated pool."""
+    tags = set()
+    for val in outd_df["_tags"].dropna():
+        for t in [t.strip() for t in str(val).split(",") if t.strip()]:
+            tags.add(t)
+    return sorted(tags)
+
+
+def filter_outdated_by_tags(outd_df, include_tags, exclude_tags):
+    """
+    Filter the outdated pool by Pleteo tags.
+    include_tags: if non-empty, case must have AT LEAST ONE of these tags.
+    exclude_tags: if non-empty, case must have NONE of these tags.
+    Both filters can be applied simultaneously.
+    Cases with no tags are included unless they fail the include filter.
+    """
+    def _parse(val):
+        if pd.isna(val) or str(val).strip() in ("", "None"):
+            return set()
+        return {t.strip() for t in str(val).split(",") if t.strip()}
+
+    result = outd_df.copy()
+
+    if include_tags:
+        inc_set = set(include_tags)
+        result = result[result["_tags"].apply(
+            lambda v: bool(_parse(v) & inc_set)
+        )]
+
+    if exclude_tags:
+        exc_set = set(exclude_tags)
+        result = result[result["_tags"].apply(
+            lambda v: not bool(_parse(v) & exc_set)
+        )]
+
+    return result.reset_index(drop=True)
 
 
 # ── History validation ────────────────────────────────────────────────────────
