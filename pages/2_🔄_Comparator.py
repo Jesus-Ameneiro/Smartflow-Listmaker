@@ -780,7 +780,7 @@ if pre_result is not None:
     )
 
     if st.button("⚙️ Generate Output File", type="primary", key="gen_output"):
-        st.session_state._output_df      = pre_result.drop(columns=["Type"])
+        st.session_state._output_df      = pre_result  # Type column retained for history
         st.session_state._confirmed_comp = False
 
 output_df = st.session_state._output_df
