@@ -15,7 +15,9 @@ import streamlit as st
 
 from comparator import (
     build_output,
+    extract_tags_from_outdated,
     filter_outdated_by_status,
+    filter_outdated_by_tags,
     find_difference_cases,
     find_outdated_cases,
     load_pleteo,
@@ -450,6 +452,44 @@ if focus_outd and len(outd_df) > 0:
             f"ℹ️ Outdated pool after filter: **{len(outd_filtered):,}** cases. "
             f"Excluded statuses: {', '.join(sorted(excluded_statuses))}."
         )
+
+# ── Outdated: Tag filter ──────────────────────────────────────────────────────
+if focus_outd and len(outd_filtered) > 0:
+    st.subheader("🏷️ Outdated — Tag Filter")
+    st.caption(
+        "Filter the outdated pool by Pleteo tags. "
+        "Include and exclude filters can be applied simultaneously."
+    )
+
+    available_tags = extract_tags_from_outdated(outd_filtered)
+
+    if available_tags:
+        tf1, tf2 = st.columns(2)
+        with tf1:
+            include_tags = st.multiselect(
+                "Include — case must have ANY of these tags",
+                options=available_tags,
+                default=[],
+                key="outd_inc_tags",
+                help="Leave empty to skip this filter.",
+            )
+        with tf2:
+            exclude_tags = st.multiselect(
+                "Exclude — remove cases with ANY of these tags",
+                options=available_tags,
+                default=[],
+                key="outd_exc_tags",
+                help="Leave empty to skip this filter.",
+            )
+
+        outd_filtered = filter_outdated_by_tags(outd_filtered, include_tags, exclude_tags)
+
+        if include_tags or exclude_tags:
+            st.info(
+                f"ℹ️ Outdated pool after tag filter: **{len(outd_filtered):,}** cases."
+            )
+    else:
+        st.info("No tags found in the current outdated pool.")
 
 # Build focused pool
 pool_ids = set()
