@@ -132,6 +132,116 @@ if pl_upload and pl_upload.name != st.session_state._pl_name:
 sf_df = st.session_state._sf_df
 pl_df = st.session_state._pl_df
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION 2 — COMPARATOR HISTORY  (always visible, no files required)
+# ─────────────────────────────────────────────────────────────────────────────
+st.header("2. Comparator History")
+st.caption(
+    "All confirmed comparator outputs stored in GitHub. "
+    "Always visible — no files need to be uploaded to view history. "
+    "Batch numbers are derived from chronological order."
+)
+
+_hist_token, _hist_repo = _gh_creds()
+if not _hist_token or not _hist_repo:
+    st.warning("Configure GitHub credentials to view history.")
+else:
+    hc1, hc2 = st.columns([1, 4])
+    with hc1:
+        if st.button("🔄 Load / Refresh History", key="load_comp_hist"):
+            with st.spinner("Fetching…"):
+                st.session_state._comp_batches = get_all_batches(
+                    _hist_token, _hist_repo, HISTORY_FOLDER
+                )
+
+    batches = st.session_state._comp_batches
+
+    if batches is None:
+        st.info("Click **Load / Refresh History** to view confirmed batches.")
+    elif not batches:
+        st.info("No confirmed comparator outputs found yet.")
+    else:
+        # ── Summary metrics ───────────────────────────────────────────────────
+        total_cases_all = sum(len(b["df"]) for b in batches)
+        hm1, hm2 = st.columns(2)
+        hm1.metric("Total Confirmed Batches", len(batches))
+        hm2.metric("Total Cases Across All Batches", f"{total_cases_all:,}")
+
+        st.divider()
+
+        # ── Batch list ────────────────────────────────────────────────────────
+        header_cols = st.columns([1, 2, 1, 1])
+        header_cols[0].markdown("**Batch #**")
+        header_cols[1].markdown("**Confirmed At**")
+        header_cols[2].markdown("**Cases**")
+        header_cols[3].markdown("**Action**")
+        st.divider()
+
+        for b in batches:
+            c1, c2, c3, c4 = st.columns([1, 2, 1, 1])
+            c1.write(f"#{b['number']}")
+            c2.write(
+                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
+                if b["confirmed_at"] else "—"
+            )
+            c3.write(len(b["df"]))
+            if c4.button("🗑️ Delete", key=f"del_comp_{b['sha'][:8]}"):
+                with st.spinner(f"Deleting Batch #{b['number']}…"):
+                    ok = delete_batch(_hist_token, _hist_repo, b["path"], b["sha"])
+                if ok:
+                    st.success(f"Batch #{b['number']} deleted.")
+                    st.session_state._comp_batches = None
+                    st.rerun()
+                else:
+                    st.error("❌ Deletion failed.")
+            st.divider()
+
+        # ── Inspect individual batch ──────────────────────────────────────────
+        sel_num = st.selectbox(
+            "Inspect batch",
+            options=[b["number"] for b in batches],
+            format_func=lambda n: f"Batch #{n}",
+            key="inspect_comp_batch",
+        )
+        sel_batch = next(b for b in batches if b["number"] == sel_num)
+        st.dataframe(sel_batch["df"], use_container_width=True, hide_index=True)
+        st.download_button(
+            f"⬇️ Download Batch #{sel_num}",
+            data=sel_batch["df"].to_csv(index=False).encode(),
+            file_name=f"comparator_batch_{sel_num:03d}.csv",
+            mime="text/csv",
+            key=f"dl_comp_{sel_num}",
+        )
+
+        st.divider()
+
+        # ── Download all batches combined ─────────────────────────────────────
+        st.subheader("⬇️ Download All Batches")
+        st.caption(
+            "Combines every confirmed batch into a single file with a "
+            "**Batch #** and **Confirmed At** column added for identification."
+        )
+        combined_parts = []
+        for b in batches:
+            part = b["df"].copy()
+            part.insert(0, "Batch #", b["number"])
+            part.insert(1, "Confirmed At",
+                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
+                if b["confirmed_at"] else "—"
+            )
+            combined_parts.append(part)
+        combined_df = pd.concat(combined_parts, ignore_index=True)
+        st.download_button(
+            f"⬇️ Download All {len(batches)} Batches ({total_cases_all:,} cases)",
+            data=combined_df.to_csv(index=False).encode(),
+            file_name=f"comparator_all_batches_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="dl_all_batches",
+            type="primary",
+        )
+
+st.divider()
+
 if sf_df is None or pl_df is None:
     st.info("Upload both files to begin.")
     st.stop()
@@ -181,7 +291,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 — COUNTRY DISTRIBUTION
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("2. Country Distribution")
+st.header("3. Country Distribution")
 
 sf_countries = smartflow_country_dist(sf_df)
 pl_countries = pleteo_country_dist(pl_df, KNOWN_COUNTRIES)
@@ -217,7 +327,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 3 — PLETEO INVESTIGATION STATUS REPORT
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("3. Pleteo — Investigation Status Report")
+st.header("4. Pleteo — Investigation Status Report")
 st.caption(
     "Status and investigator data sourced exclusively from the Pleteo file. "
     "Difference cases (not in Pleteo) have no status or investigator by definition."
@@ -263,7 +373,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 4 — VALIDATE AGAINST HISTORY
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("4. Validate Against History")
+st.header("5. Validate Against History")
 st.caption(
     "Cases confirmed within the expiration window will be excluded. "
     "Cases outside the window are eligible for inclusion again."
@@ -333,7 +443,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 5 — COMPARISON REPORT
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("5. Comparison Report")
+st.header("6. Comparison Report")
 
 sf_pool = sf_df[~sf_df["_case_id"].isin(excl_map.keys())].copy()
 
@@ -390,7 +500,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 6 — OUTPUT CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("6. Output Configuration")
+st.header("7. Output Configuration")
 
 # ── Focus ─────────────────────────────────────────────────────────────────────
 st.subheader("Focus")
@@ -620,7 +730,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 7 — PREVIEW & GENERATE
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("7. Preview & Generate")
+st.header("8. Preview & Generate")
 
 can_generate = (
     selected_countries
@@ -690,7 +800,7 @@ if output_df is not None:
     # ─────────────────────────────────────────────────────────────────────────
     # SECTION 8 — CONFIRM & SAVE TO HISTORY
     # ─────────────────────────────────────────────────────────────────────────
-    st.header("8. Confirm & Save to History")
+    st.header("9. Confirm & Save to History")
     st.caption(
         "Confirming saves this output as a history record. "
         "These cases will be excluded from future outputs within the expiration window."
@@ -719,69 +829,3 @@ if output_df is not None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 9 — HISTORY VIEWER
-# ─────────────────────────────────────────────────────────────────────────────
-st.header("9. Comparator History")
-st.caption(
-    "All confirmed comparator outputs stored in GitHub. "
-    "Batch numbers are derived from chronological order."
-)
-
-token, repo = _gh_creds()
-if not token or not repo:
-    st.warning("Configure GitHub credentials to view history.")
-else:
-    if st.button("🔄 Load / Refresh Comparator History", key="load_comp_hist"):
-        with st.spinner("Fetching…"):
-            st.session_state._comp_batches = get_all_batches(
-                token, repo, HISTORY_FOLDER
-            )
-
-    batches = st.session_state._comp_batches
-
-    if batches is None:
-        st.info("Click **Load / Refresh Comparator History** to view records.")
-    elif not batches:
-        st.info("No confirmed comparator outputs found yet.")
-    else:
-        header_cols = st.columns([1, 2, 1, 1])
-        header_cols[0].markdown("**Batch #**")
-        header_cols[1].markdown("**Confirmed At**")
-        header_cols[2].markdown("**Cases**")
-        header_cols[3].markdown("**Action**")
-        st.divider()
-
-        for b in batches:
-            c1, c2, c3, c4 = st.columns([1, 2, 1, 1])
-            c1.write(f"#{b['number']}")
-            c2.write(
-                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                if b["confirmed_at"] else "—"
-            )
-            c3.write(len(b["df"]))
-            if c4.button("🗑️ Delete", key=f"del_comp_{b['sha'][:8]}"):
-                with st.spinner(f"Deleting Batch #{b['number']}…"):
-                    ok = delete_batch(token, repo, b["path"], b["sha"])
-                if ok:
-                    st.success(f"Batch #{b['number']} deleted.")
-                    st.session_state._comp_batches = None
-                    st.rerun()
-                else:
-                    st.error("❌ Deletion failed.")
-            st.divider()
-
-        sel_num = st.selectbox(
-            "Inspect batch",
-            options=[b["number"] for b in batches],
-            format_func=lambda n: f"Batch #{n}",
-            key="inspect_comp_batch",
-        )
-        sel_batch = next(b for b in batches if b["number"] == sel_num)
-        st.dataframe(sel_batch["df"], use_container_width=True, hide_index=True)
-        st.download_button(
-            f"⬇️ Download Batch #{sel_num}",
-            data=sel_batch["df"].to_csv(index=False).encode(),
-            file_name=f"comparator_batch_{sel_num:03d}.csv",
-            mime="text/csv",
-            key=f"dl_comp_{sel_num}",
-        )
