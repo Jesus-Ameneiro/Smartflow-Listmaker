@@ -94,6 +94,7 @@ for k, v in {
     "_req_count":          0,        # Original requested count for refill
     "_blacklist_df":       None,     # Cached blacklist
     "_blacklist_sha":      None,
+    "_specific_verify_df": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -776,6 +777,126 @@ if bl_df is not None and not bl_df.empty:
     n_removed = n_before - len(focused_pool)
     if n_removed > 0:
         st.info(f"ℹ️ {n_removed} black-listed case(s) excluded from the pool.")
+
+st.divider()
+
+# ── Specific Case ID lookup ───────────────────────────────────────────────────
+if focus_outd and outd_df is not None and len(outd_df) > 0:
+    with st.expander("🎯 Update Specific Cases by ID", expanded=False):
+        st.caption(
+            "Paste Case IDs to verify if they are outdated and build a preview "
+            "directly from that list — bypassing country and status filters."
+        )
+
+        specific_input = st.text_area(
+            "Case IDs (comma-separated)",
+            placeholder="e.g. 648494#1, 957340#1, 884133#1",
+            height=90,
+            key="specific_ids_input",
+        )
+
+        if st.button("🔎 Verify Cases", key="verify_specific_btn") and specific_input.strip():
+            query_ids = [x.strip() for x in specific_input.split(",") if x.strip()]
+
+            # Build Pleteo last event lookup
+            pl_lookup_spec = (
+                pl_df[["_case_id", "_last_event", "_inv_status"]]
+                .drop_duplicates("_case_id")
+                .set_index("_case_id")
+            )
+            sf_lookup_spec = (
+                sf_df[["_case_id", "_last_event", "Organization Name", "Country",
+                        "No. ofMachines", "Case Status"]]
+                .drop_duplicates("_case_id")
+                .set_index("_case_id")
+            )
+
+            rows = []
+            for qid in query_ids:
+                in_sf  = qid in sf_lookup_spec.index
+                in_pl  = qid in pl_lookup_spec.index
+
+                if not in_sf and not in_pl:
+                    rows.append({
+                        "Case ID":               qid,
+                        "Organization":          "—",
+                        "Country":               "—",
+                        "Smartflow Last Event":  "—",
+                        "Pleteo Last Event":     "—",
+                        "Days Difference":       "—",
+                        "Result":                "❌ Not found in either file",
+                    })
+                    continue
+
+                sf_le = sf_lookup_spec.loc[qid, "_last_event"] if in_sf else pd.NaT
+                pl_le = pl_lookup_spec.loc[qid, "_last_event"] if in_pl else pd.NaT
+
+                sf_le = pd.to_datetime(sf_le, errors="coerce")
+                pl_le = pd.to_datetime(pl_le, errors="coerce")
+
+                org     = sf_lookup_spec.loc[qid, "Organization Name"] if in_sf else "—"
+                country = sf_lookup_spec.loc[qid, "Country"]           if in_sf else "—"
+
+                if not in_pl:
+                    result = "⚠️ Not in Pleteo (Difference case)"
+                    days   = "—"
+                elif pd.isna(sf_le) or pd.isna(pl_le):
+                    result = "⚠️ Date missing — cannot compare"
+                    days   = "—"
+                elif sf_le > pl_le:
+                    diff_days = (sf_le - pl_le).days
+                    days      = f"{diff_days:,} days"
+                    result    = "✅ Outdated — needs update"
+                elif sf_le == pl_le:
+                    days   = "0 days"
+                    result = "🟡 Up to date (same date)"
+                else:
+                    days   = "—"
+                    result = "🟡 Pleteo is more recent"
+
+                rows.append({
+                    "Case ID":              qid,
+                    "Organization":         org,
+                    "Country":              country,
+                    "Smartflow Last Event": sf_le.strftime("%Y-%m-%d") if pd.notna(sf_le) else "—",
+                    "Pleteo Last Event":    pl_le.strftime("%Y-%m-%d") if pd.notna(pl_le) else "—",
+                    "Days Difference":      days,
+                    "Result":               result,
+                })
+
+            spec_df = pd.DataFrame(rows)
+            st.session_state._specific_verify_df = spec_df
+
+        spec_df = st.session_state.get("_specific_verify_df")
+        if spec_df is not None and not spec_df.empty:
+            confirmed_outdated = spec_df[spec_df["Result"] == "✅ Outdated — needs update"]
+            sv1, sv2, sv3 = st.columns(3)
+            sv1.metric("Queried",             len(spec_df))
+            sv2.metric("Confirmed Outdated",  len(confirmed_outdated))
+            sv3.metric("Not Outdated / Error",len(spec_df) - len(confirmed_outdated))
+
+            st.dataframe(spec_df, use_container_width=True, hide_index=True)
+
+            if len(confirmed_outdated) > 0:
+                if st.button(
+                    f"⚙️ Generate Preview from {len(confirmed_outdated)} Outdated Case(s)",
+                    type="primary",
+                    key="gen_from_specific_btn",
+                ):
+                    confirmed_ids = set(confirmed_outdated["Case ID"].tolist())
+                    pre_from_spec = build_output(sf_pool, confirmed_ids)
+                    pre_from_spec["Type"] = "Outdated"
+                    st.session_state._pre_result      = pre_from_spec
+                    st.session_state._output_df       = None
+                    st.session_state._confirmed_comp  = False
+                    st.session_state._excl_preview    = set()
+                    st.session_state._focused_pool    = sf_pool.copy()
+                    st.session_state._country_alloc   = {}
+                    st.session_state._specific_verify_df = None
+                    st.success(
+                        f"✅ Preview generated with {len(confirmed_outdated)} case(s). "
+                        "Scroll down to Section 8."
+                    )
 
 st.divider()
 
