@@ -30,9 +30,12 @@ from comparator import (
     validate_comparator_history,
 )
 from github_manager import (
+    add_to_blacklist,
     delete_batch,
     get_all_batches,
+    get_blacklist,
     push_batch,
+    remove_from_blacklist,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -74,17 +77,23 @@ def _require_creds():
 
 # ── Session defaults ──────────────────────────────────────────────────────────
 for k, v in {
-    "_sf_df":          None,
-    "_pl_df":          None,
-    "_sf_name":        None,
-    "_pl_name":        None,
-    "_diff_df":        None,
-    "_outd_df":        None,
-    "_excl_map":       {},
-    "_pre_result":     None,
-    "_output_df":      None,
-    "_confirmed_comp": False,
-    "_comp_batches":   None,
+    "_sf_df":              None,
+    "_pl_df":              None,
+    "_sf_name":            None,
+    "_pl_name":            None,
+    "_diff_df":            None,
+    "_outd_df":            None,
+    "_excl_map":           {},
+    "_pre_result":         None,
+    "_output_df":          None,
+    "_confirmed_comp":     False,
+    "_comp_batches":       None,
+    "_excl_preview":       set(),    # Case IDs excluded in current preview session
+    "_focused_pool":       None,     # Cached pool for refill
+    "_country_alloc":      {},       # Cached allocation for refill
+    "_req_count":          0,        # Original requested count for refill
+    "_blacklist_df":       None,     # Cached blacklist
+    "_blacklist_sha":      None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -136,109 +145,167 @@ pl_df = st.session_state._pl_df
 # SECTION 2 — COMPARATOR HISTORY  (always visible, no files required)
 # ─────────────────────────────────────────────────────────────────────────────
 st.header("2. Comparator History")
-st.caption(
-    "All confirmed comparator outputs stored in GitHub. "
-    "Always visible — no files need to be uploaded to view history. "
-    "Batch numbers are derived from chronological order."
-)
 
 _hist_token, _hist_repo = _gh_creds()
 if not _hist_token or not _hist_repo:
     st.warning("Configure GitHub credentials to view history.")
 else:
-    hc1, hc2 = st.columns([1, 4])
-    with hc1:
-        if st.button("🔄 Load / Refresh History", key="load_comp_hist"):
+    # Auto-load history and blacklist on first render
+    if st.session_state._comp_batches is None:
+        with st.spinner("Loading history…"):
+            st.session_state._comp_batches = get_all_batches(
+                _hist_token, _hist_repo, HISTORY_FOLDER
+            )
+    if st.session_state._blacklist_df is None:
+        sha, bl_df = get_blacklist(_hist_token, _hist_repo)
+        st.session_state._blacklist_sha = sha
+        st.session_state._blacklist_df  = bl_df
+
+    batches = st.session_state._comp_batches
+
+    # Always show summary metrics outside the expander
+    if batches:
+        total_cases_all = sum(len(b["df"]) for b in batches)
+        hm1, hm2, hm3 = st.columns(3)
+        hm1.metric("Confirmed Batches", len(batches))
+        hm2.metric("Total Cases", f"{total_cases_all:,}")
+        hm3.metric("Pending (Batch #19)", "600")
+    elif batches is not None:
+        st.info("No confirmed comparator outputs found yet.")
+
+    # All detail inside a collapsed expander
+    with st.expander("📂 View & Manage Batch History", expanded=False):
+        if st.button("🔄 Refresh History", key="load_comp_hist"):
             with st.spinner("Fetching…"):
                 st.session_state._comp_batches = get_all_batches(
                     _hist_token, _hist_repo, HISTORY_FOLDER
                 )
+            st.rerun()
 
-    batches = st.session_state._comp_batches
-
-    if batches is None:
-        st.info("Click **Load / Refresh History** to view confirmed batches.")
-    elif not batches:
-        st.info("No confirmed comparator outputs found yet.")
-    else:
-        # ── Summary metrics ───────────────────────────────────────────────────
-        total_cases_all = sum(len(b["df"]) for b in batches)
-        hm1, hm2 = st.columns(2)
-        hm1.metric("Total Confirmed Batches", len(batches))
-        hm2.metric("Total Cases Across All Batches", f"{total_cases_all:,}")
-
-        st.divider()
-
-        # ── Batch list ────────────────────────────────────────────────────────
-        header_cols = st.columns([1, 2, 1, 1])
-        header_cols[0].markdown("**Batch #**")
-        header_cols[1].markdown("**Confirmed At**")
-        header_cols[2].markdown("**Cases**")
-        header_cols[3].markdown("**Action**")
-        st.divider()
-
-        for b in batches:
-            c1, c2, c3, c4 = st.columns([1, 2, 1, 1])
-            c1.write(f"#{b['number']}")
-            c2.write(
-                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                if b["confirmed_at"] else "—"
-            )
-            c3.write(len(b["df"]))
-            if c4.button("🗑️ Delete", key=f"del_comp_{b['sha'][:8]}"):
-                with st.spinner(f"Deleting Batch #{b['number']}…"):
-                    ok = delete_batch(_hist_token, _hist_repo, b["path"], b["sha"])
-                if ok:
-                    st.success(f"Batch #{b['number']} deleted.")
-                    st.session_state._comp_batches = None
-                    st.rerun()
-                else:
-                    st.error("❌ Deletion failed.")
+        if batches:
             st.divider()
 
-        # ── Inspect individual batch ──────────────────────────────────────────
-        sel_num = st.selectbox(
-            "Inspect batch",
-            options=[b["number"] for b in batches],
-            format_func=lambda n: f"Batch #{n}",
-            key="inspect_comp_batch",
-        )
-        sel_batch = next(b for b in batches if b["number"] == sel_num)
-        st.dataframe(sel_batch["df"], use_container_width=True, hide_index=True)
-        st.download_button(
-            f"⬇️ Download Batch #{sel_num}",
-            data=sel_batch["df"].to_csv(index=False).encode(),
-            file_name=f"comparator_batch_{sel_num:03d}.csv",
-            mime="text/csv",
-            key=f"dl_comp_{sel_num}",
-        )
+            # ── Batch list ────────────────────────────────────────────────────
+            header_cols = st.columns([1, 2, 1, 1])
+            header_cols[0].markdown("**Batch #**")
+            header_cols[1].markdown("**Confirmed At**")
+            header_cols[2].markdown("**Cases**")
+            header_cols[3].markdown("**Action**")
+            st.divider()
 
-        st.divider()
+            for b in batches:
+                c1, c2, c3, c4 = st.columns([1, 2, 1, 1])
+                c1.write(f"#{b['number']}")
+                c2.write(
+                    b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
+                    if b["confirmed_at"] else "—"
+                )
+                c3.write(len(b["df"]))
+                if c4.button("🗑️ Delete", key=f"del_comp_{b['sha'][:8]}"):
+                    with st.spinner(f"Deleting Batch #{b['number']}…"):
+                        ok = delete_batch(_hist_token, _hist_repo, b["path"], b["sha"])
+                    if ok:
+                        st.success(f"Batch #{b['number']} deleted.")
+                        st.session_state._comp_batches = None
+                        st.rerun()
+                    else:
+                        st.error("❌ Deletion failed.")
+                st.divider()
 
-        # ── Download all batches combined ─────────────────────────────────────
-        st.subheader("⬇️ Download All Batches")
-        st.caption(
-            "Combines every confirmed batch into a single file with a "
-            "**Batch #** and **Confirmed At** column added for identification."
-        )
-        combined_parts = []
-        for b in batches:
-            part = b["df"].copy()
-            part.insert(0, "Batch #", b["number"])
-            part.insert(1, "Confirmed At",
-                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                if b["confirmed_at"] else "—"
+            # ── Inspect individual batch ──────────────────────────────────────
+            sel_num = st.selectbox(
+                "Inspect batch",
+                options=[b["number"] for b in batches],
+                format_func=lambda n: f"Batch #{n}",
+                key="inspect_comp_batch",
             )
-            combined_parts.append(part)
-        combined_df = pd.concat(combined_parts, ignore_index=True)
-        st.download_button(
-            f"⬇️ Download All {len(batches)} Batches ({total_cases_all:,} cases)",
-            data=combined_df.to_csv(index=False).encode(),
-            file_name=f"comparator_all_batches_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv",
-            key="dl_all_batches",
-            type="primary",
+            sel_batch = next(b for b in batches if b["number"] == sel_num)
+            st.dataframe(sel_batch["df"], use_container_width=True, hide_index=True)
+            st.download_button(
+                f"⬇️ Download Batch #{sel_num}",
+                data=sel_batch["df"].to_csv(index=False).encode(),
+                file_name=f"comparator_batch_{sel_num:03d}.csv",
+                mime="text/csv",
+                key=f"dl_comp_{sel_num}",
+            )
+
+            st.divider()
+
+            # ── Download all batches combined ─────────────────────────────────
+            st.caption(
+                "Combines every confirmed batch into a single file with "
+                "**Batch #** and **Confirmed At** columns for identification."
+            )
+            combined_parts = []
+            for b in batches:
+                part = b["df"].copy()
+                part.insert(0, "Batch #", b["number"])
+                part.insert(1, "Confirmed At",
+                    b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
+                    if b["confirmed_at"] else "—"
+                )
+                combined_parts.append(part)
+            combined_df = pd.concat(combined_parts, ignore_index=True)
+            st.download_button(
+                f"⬇️ Download All {len(batches)} Batches ({total_cases_all:,} cases)",
+                data=combined_df.to_csv(index=False).encode(),
+                file_name=f"comparator_all_batches_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                key="dl_all_batches",
+                type="primary",
+            )
+
+    st.divider()
+
+    # ── Black List Management ─────────────────────────────────────────────────
+    with st.expander("🚫 Black List Management", expanded=False):
+        st.caption(
+            "Cases in the black list are automatically excluded from all future "
+            "output generation. Add cases from the preview or manage entries here."
         )
+
+        bl_df = st.session_state._blacklist_df
+        if bl_df is None or bl_df.empty:
+            st.info("The black list is empty.")
+        else:
+            st.metric("Black Listed Cases", len(bl_df))
+            st.dataframe(
+                bl_df.rename(columns={
+                    "case_id": "Case ID",
+                    "organization_name": "Organization",
+                    "country": "Country",
+                    "added_at": "Added At",
+                }),
+                use_container_width=True, hide_index=True,
+            )
+
+            # Remove selected cases from blacklist
+            remove_ids = st.multiselect(
+                "Select Case IDs to remove from black list",
+                options=bl_df["case_id"].tolist(),
+                key="bl_remove_sel",
+            )
+            if remove_ids and st.button(
+                f"✅ Remove {len(remove_ids)} case(s) from Black List",
+                key="bl_remove_btn",
+            ):
+                with st.spinner("Updating black list…"):
+                    ok, updated = remove_from_blacklist(
+                        remove_ids, _hist_token, _hist_repo
+                    )
+                if ok:
+                    st.session_state._blacklist_df  = updated
+                    st.session_state._blacklist_sha = None
+                    st.success(f"✅ Removed {len(remove_ids)} case(s) from black list.")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to update black list.")
+
+        if st.button("🔄 Refresh Black List", key="bl_refresh"):
+            sha, bl_df = get_blacklist(_hist_token, _hist_repo)
+            st.session_state._blacklist_sha = sha
+            st.session_state._blacklist_df  = bl_df
+            st.rerun()
 
 st.divider()
 
@@ -611,6 +678,16 @@ if focus_outd:
 
 focused_pool = sf_pool[sf_pool["_case_id"].isin(pool_ids)].copy()
 
+# Exclude black-listed cases from the pool
+bl_df = st.session_state._blacklist_df
+if bl_df is not None and not bl_df.empty:
+    bl_ids = set(bl_df["case_id"].astype(str))
+    n_before = len(focused_pool)
+    focused_pool = focused_pool[~focused_pool["_case_id"].isin(bl_ids)].copy()
+    n_removed = n_before - len(focused_pool)
+    if n_removed > 0:
+        st.info(f"ℹ️ {n_removed} black-listed case(s) excluded from the pool.")
+
 st.divider()
 
 # ── Machine filter ────────────────────────────────────────────────────────────
@@ -764,32 +841,136 @@ if st.button(
         return " + ".join(parts) if parts else "—"
     pre_result["Type"] = pre_result["Case ID"].apply(_tag)
 
-    st.session_state._pre_result     = pre_result
-    st.session_state._output_df      = None
-    st.session_state._confirmed_comp = False
+    st.session_state._pre_result      = pre_result
+    st.session_state._output_df       = None
+    st.session_state._confirmed_comp  = False
+    st.session_state._excl_preview    = set()
+    st.session_state._focused_pool    = focused_pool.copy()
+    st.session_state._country_alloc   = dict(country_alloc)
+    st.session_state._req_count       = total_requested
 
 pre_result = st.session_state._pre_result
 
 if pre_result is not None:
-    st.subheader("Preview")
-    type_counts = pre_result["Type"].value_counts().to_dict()
-    pm1, pm2, pm3 = st.columns(3)
-    pm1.metric("Total Cases",  len(pre_result))
-    pm2.metric("Difference",   type_counts.get("Difference", 0))
-    pm3.metric("Outdated",     type_counts.get("Outdated", 0))
+    excl_preview  = st.session_state._excl_preview
+    focused_pool  = st.session_state._focused_pool
+    country_alloc = st.session_state._country_alloc
 
-    preview_cols = [
-        "Case ID", "Organization Name", "Country",
-        "No. ofMachines", "Last Event", "Type",
-    ]
-    st.dataframe(
-        pre_result[[c for c in preview_cols if c in pre_result.columns]],
-        use_container_width=True, hide_index=True,
+    # Active preview = pre_result minus excluded cases
+    active_preview = pre_result[
+        ~pre_result["Case ID"].isin(excl_preview)
+    ].reset_index(drop=True)
+
+    st.subheader("Preview")
+    type_counts = active_preview["Type"].value_counts().to_dict()
+    pm1, pm2, pm3, pm4 = st.columns(4)
+    pm1.metric("In Output",  len(active_preview))
+    pm2.metric("Difference", type_counts.get("Difference", 0))
+    pm3.metric("Outdated",   type_counts.get("Outdated", 0))
+    pm4.metric("Excluded",   len(excl_preview))
+
+    preview_cols = ["Case ID", "Organization Name", "Country",
+                    "No. ofMachines", "Last Event", "Type"]
+    disp_cols = [c for c in preview_cols if c in active_preview.columns]
+
+    # Selectable dataframe
+    sel_event = st.dataframe(
+        active_preview[disp_cols],
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="multi-row",
+        key="preview_sel",
+    )
+    selected_rows = (
+        sel_event.selection.rows
+        if sel_event and hasattr(sel_event, "selection") and sel_event.selection
+        else []
     )
 
+    # Action buttons
+    btn1, btn2, btn3, btn4 = st.columns(4)
+
+    if selected_rows:
+        if btn1.button(f"🚫 Exclude Selected ({len(selected_rows)})", key="excl_sel_btn"):
+            new_excl = set(active_preview.iloc[selected_rows]["Case ID"].tolist())
+            st.session_state._excl_preview |= new_excl
+            st.rerun()
+
+    if excl_preview and focused_pool is not None:
+        if btn2.button("🔄 Refill List", key="refill_btn"):
+            kept_ids = set(active_preview["Case ID"].tolist())
+            all_seen = kept_ids | excl_preview
+            bl_ids   = set(
+                st.session_state._blacklist_df["case_id"].astype(str)
+            ) if (st.session_state._blacklist_df is not None and
+                  not st.session_state._blacklist_df.empty) else set()
+
+            new_rows = []
+            for country, alloc_n in country_alloc.items():
+                kept_n = len(active_preview[active_preview["Country"] == country])
+                need   = alloc_n - kept_n
+                if need <= 0:
+                    continue
+                candidates = focused_pool[
+                    (focused_pool["_country"] == country) &
+                    (~focused_pool["_case_id"].isin(all_seen)) &
+                    (~focused_pool["_case_id"].isin(bl_ids))
+                ].sort_values("_last_event", ascending=False).head(need)
+                if not candidates.empty:
+                    new_rows.append(build_output(focused_pool, set(candidates["_case_id"])))
+
+            if new_rows:
+                additions = pd.concat(new_rows, ignore_index=True)
+                diff_ids_r = set(diff_df["_case_id"])
+                outd_ids_r = set(outd_filtered["_case_id"])
+                def _tag_r(cid):
+                    p = []
+                    if cid in diff_ids_r: p.append("Difference")
+                    if cid in outd_ids_r: p.append("Outdated")
+                    return " + ".join(p) if p else "—"
+                additions["Type"] = additions["Case ID"].apply(_tag_r)
+                refilled = pd.concat([active_preview, additions], ignore_index=True)
+                st.session_state._pre_result = refilled
+                st.success(f"✅ Added {len(additions)} replacement case(s).")
+                st.rerun()
+            else:
+                st.warning("⚠️ No additional cases available in the pool to refill.")
+
+    if excl_preview:
+        if btn3.button(f"⛔ Add {len(excl_preview)} to Black List", key="add_bl_btn"):
+            token, repo = _require_creds()
+            rows_for_bl = [
+                {"case_id": r["Case ID"],
+                 "organization_name": r.get("Organization Name", ""),
+                 "country": r.get("Country", "")}
+                for _, r in pre_result[pre_result["Case ID"].isin(excl_preview)].iterrows()
+            ]
+            with st.spinner("Saving to black list…"):
+                ok, updated_bl = add_to_blacklist(rows_for_bl, token, repo)
+            if ok:
+                st.session_state._blacklist_df  = updated_bl
+                st.session_state._blacklist_sha = None
+                st.success(f"✅ {len(rows_for_bl)} case(s) added to the black list.")
+            else:
+                st.error("❌ Failed to save black list.")
+
+    if excl_preview:
+        if btn4.button("↩️ Clear Exclusions", key="clear_excl_btn"):
+            st.session_state._excl_preview = set()
+            st.rerun()
+
+    if excl_preview:
+        with st.expander(f"🚫 Excluded cases — {len(excl_preview)} case(s)", expanded=False):
+            excl_view = pre_result[pre_result["Case ID"].isin(excl_preview)][disp_cols]
+            st.dataframe(excl_view.reset_index(drop=True), use_container_width=True, hide_index=True)
+
+    st.divider()
+
     if st.button("⚙️ Generate Output File", type="primary", key="gen_output"):
-        st.session_state._output_df      = pre_result  # Type column retained for history
+        st.session_state._output_df      = active_preview
         st.session_state._confirmed_comp = False
+
 
 output_df = st.session_state._output_df
 
