@@ -268,3 +268,59 @@ def remove_from_blacklist(case_ids_to_remove, token, repo):
     ].reset_index(drop=True)
     ok = save_blacklist(updated, token, repo, sha=sha)
     return ok, updated
+
+
+# ── Comparator Updates Log ────────────────────────────────────────────────────
+
+_COMP_UPDATES_PATH = "history_comparator/updates_log.csv"
+_COMP_UPDATES_COLS = ["case_id", "organization_name", "country",
+                      "batch_number", "confirmed_at"]
+
+
+def get_comp_updates_log(token, repo):
+    """Load comparator updates log. Returns (sha_or_None, DataFrame)."""
+    sha, content = _get_file_meta(token, repo, _COMP_UPDATES_PATH)
+    if content is None:
+        return None, pd.DataFrame(columns=_COMP_UPDATES_COLS)
+    try:
+        return sha, pd.read_csv(io.StringIO(content))
+    except Exception:
+        return None, pd.DataFrame(columns=_COMP_UPDATES_COLS)
+
+
+def push_comp_updates_log(df, token, repo, sha=None):
+    """Create or update comparator updates log. Returns True on success."""
+    return _put_file(
+        token, repo, _COMP_UPDATES_PATH,
+        df.to_csv(index=False),
+        "Update comparator updates log",
+        sha=sha,
+    )
+
+
+def confirm_cases_updated(case_rows, token, repo):
+    """
+    Mark cases as confirmed-updated in the comparator updates log.
+    case_rows: list of dicts with case_id, organization_name, country, batch_number.
+    Returns (success, updated_df).
+    """
+    sha, existing = get_comp_updates_log(token, repo)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    existing_ids = set(existing["case_id"].astype(str)) if not existing.empty else set()
+
+    new_rows = [
+        {
+            "case_id":           r["case_id"],
+            "organization_name": r.get("organization_name", ""),
+            "country":           r.get("country", ""),
+            "batch_number":      r.get("batch_number", ""),
+            "confirmed_at":      now,
+        }
+        for r in case_rows
+        if str(r["case_id"]) not in existing_ids
+    ]
+    if not new_rows:
+        return True, existing
+    updated = pd.concat([existing, pd.DataFrame(new_rows)], ignore_index=True)
+    ok = push_comp_updates_log(updated, token, repo, sha=sha)
+    return ok, updated
