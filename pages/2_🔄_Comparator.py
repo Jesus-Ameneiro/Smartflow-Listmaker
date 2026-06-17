@@ -307,6 +307,95 @@ else:
             st.session_state._blacklist_df  = bl_df
             st.rerun()
 
+    # ── Case ID Lookup ────────────────────────────────────────────────────────
+    with st.expander("🔍 Verify Case IDs Against History", expanded=False):
+        st.caption(
+            "Paste one or more Case IDs separated by commas to check whether "
+            "they exist in any confirmed batch and see their update status."
+        )
+
+        lookup_input = st.text_area(
+            "Case IDs",
+            placeholder="e.g. 648494#1, 957340#1, 884133#1",
+            height=90,
+            key="lookup_input",
+        )
+
+        if st.button("🔎 Verify", key="lookup_btn") and lookup_input.strip():
+            query_ids = {x.strip() for x in lookup_input.split(",") if x.strip()}
+            batches_now = st.session_state._comp_batches or []
+
+            # Build lookup index: case_id → list of {batch #, confirmed_at}
+            id_to_batches = {}
+            for b in batches_now:
+                col = next(
+                    (c for c in ["Case ID", "case_id"] if c in b["df"].columns),
+                    None,
+                )
+                if col is None:
+                    continue
+                for cid in b["df"][col].dropna().astype(str):
+                    if cid in query_ids:
+                        id_to_batches.setdefault(cid, []).append(b)
+
+            # Build results table
+            rows = []
+            for qid in sorted(query_ids):
+                if qid in id_to_batches:
+                    for b in id_to_batches[qid]:
+                        # Get org name from batch df
+                        col = next(
+                            (c for c in ["Case ID", "case_id"]
+                             if c in b["df"].columns), None
+                        )
+                        org_col = next(
+                            (c for c in ["Organization Name", "organization_name"]
+                             if c in b["df"].columns), None
+                        )
+                        org = "—"
+                        if col and org_col:
+                            match = b["df"][b["df"][col].astype(str) == qid]
+                            if not match.empty:
+                                org = match.iloc[0][org_col]
+                        rows.append({
+                            "Case ID":      qid,
+                            "Organization": org,
+                            "Batch #":      f"#{b['number']}",
+                            "Confirmed At": (
+                                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
+                                if b["confirmed_at"] else "—"
+                            ),
+                            "Status": "✅ In History",
+                        })
+                else:
+                    rows.append({
+                        "Case ID":      qid,
+                        "Organization": "—",
+                        "Batch #":      "—",
+                        "Confirmed At": "—",
+                        "Status":       "❌ Not Found",
+                    })
+
+            result_df = pd.DataFrame(rows)
+            found_count    = (result_df["Status"] == "✅ In History").sum()
+            notfound_count = (result_df["Status"] == "❌ Not Found").sum()
+
+            lm1, lm2, lm3 = st.columns(3)
+            lm1.metric("Queried",   len(query_ids))
+            lm2.metric("Found",     found_count)
+            lm3.metric("Not Found", notfound_count)
+
+            if notfound_count:
+                st.warning(
+                    f"⚠️ {notfound_count} case(s) not found in any confirmed batch."
+                )
+            if found_count:
+                st.success(
+                    f"✅ {found_count} case(s) located in history."
+                )
+
+            st.dataframe(result_df, use_container_width=True, hide_index=True)
+
 st.divider()
 
 if sf_df is None or pl_df is None:
