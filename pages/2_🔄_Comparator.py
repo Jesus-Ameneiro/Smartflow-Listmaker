@@ -31,9 +31,11 @@ from comparator import (
 )
 from github_manager import (
     add_to_blacklist,
+    confirm_cases_updated,
     delete_batch,
     get_all_batches,
     get_blacklist,
+    get_comp_updates_log,
     push_batch,
     remove_from_blacklist,
 )
@@ -95,6 +97,8 @@ for k, v in {
     "_blacklist_df":       None,     # Cached blacklist
     "_blacklist_sha":      None,
     "_specific_verify_df": None,
+    "_comp_updates_df":    None,
+    "_comp_updates_sha":   None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -798,58 +802,90 @@ if focus_outd and outd_df is not None and len(outd_df) > 0:
         if st.button("🔎 Verify Cases", key="verify_specific_btn") and specific_input.strip():
             query_ids = [x.strip() for x in specific_input.split(",") if x.strip()]
 
-            # Build Pleteo last event lookup
+            # Lookups
             pl_lookup_spec = (
                 pl_df[["_case_id", "_last_event", "_inv_status"]]
-                .drop_duplicates("_case_id")
-                .set_index("_case_id")
+                .drop_duplicates("_case_id").set_index("_case_id")
             )
             sf_lookup_spec = (
                 sf_df[["_case_id", "_last_event", "Organization Name", "Country",
                         "No. ofMachines", "Case Status"]]
-                .drop_duplicates("_case_id")
-                .set_index("_case_id")
+                .drop_duplicates("_case_id").set_index("_case_id")
             )
+
+            # Build batch index: case_id → {batch_number, confirmed_at}
+            batches_now = st.session_state._comp_batches or []
+            id_to_batch = {}
+            for b in batches_now:
+                col = next((c for c in ["Case ID","case_id"] if c in b["df"].columns), None)
+                if col is None: continue
+                for cid in b["df"][col].dropna().astype(str):
+                    if cid not in id_to_batch:
+                        id_to_batch[cid] = {
+                            "batch_number": b["number"],
+                            "confirmed_at": (
+                                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
+                                if b["confirmed_at"] else "—"
+                            ),
+                        }
+
+            # Load updates log (cached)
+            if st.session_state._comp_updates_df is None:
+                token_ul, repo_ul = _gh_creds()
+                if token_ul and repo_ul:
+                    sha_ul, ul_df = get_comp_updates_log(token_ul, repo_ul)
+                    st.session_state._comp_updates_sha = sha_ul
+                    st.session_state._comp_updates_df  = ul_df
+            already_updated = set()
+            if st.session_state._comp_updates_df is not None:
+                already_updated = set(
+                    st.session_state._comp_updates_df["case_id"].astype(str)
+                )
 
             rows = []
             for qid in query_ids:
-                in_sf  = qid in sf_lookup_spec.index
-                in_pl  = qid in pl_lookup_spec.index
+                in_sf = qid in sf_lookup_spec.index
+                in_pl = qid in pl_lookup_spec.index
+                in_batch = qid in id_to_batch
 
-                if not in_sf and not in_pl:
-                    rows.append({
-                        "Case ID":               qid,
-                        "Organization":          "—",
-                        "Country":               "—",
-                        "Smartflow Last Event":  "—",
-                        "Pleteo Last Event":     "—",
-                        "Days Difference":       "—",
-                        "Result":                "❌ Not found in either file",
-                    })
-                    continue
-
-                sf_le = sf_lookup_spec.loc[qid, "_last_event"] if in_sf else pd.NaT
-                pl_le = pl_lookup_spec.loc[qid, "_last_event"] if in_pl else pd.NaT
-
-                sf_le = pd.to_datetime(sf_le, errors="coerce")
-                pl_le = pd.to_datetime(pl_le, errors="coerce")
+                sf_le = pd.to_datetime(
+                    sf_lookup_spec.loc[qid, "_last_event"] if in_sf else None,
+                    errors="coerce"
+                )
+                pl_le = pd.to_datetime(
+                    pl_lookup_spec.loc[qid, "_last_event"] if in_pl else None,
+                    errors="coerce"
+                )
 
                 org     = sf_lookup_spec.loc[qid, "Organization Name"] if in_sf else "—"
                 country = sf_lookup_spec.loc[qid, "Country"]           if in_sf else "—"
 
-                if not in_pl:
+                # Batch status
+                if in_batch:
+                    b_info = id_to_batch[qid]
+                    if qid in already_updated:
+                        batch_status = f"✅ Updated (Batch #{b_info['batch_number']})"
+                    else:
+                        batch_status = f"⏳ Pending (Batch #{b_info['batch_number']})"
+                else:
+                    batch_status = "—"
+
+                # Outdated result
+                if not in_sf and not in_pl:
+                    result = "❌ Not found in either file"
+                    days   = "—"
+                elif not in_pl:
                     result = "⚠️ Not in Pleteo (Difference case)"
                     days   = "—"
                 elif pd.isna(sf_le) or pd.isna(pl_le):
-                    result = "⚠️ Date missing — cannot compare"
+                    result = "⚠️ Date missing"
                     days   = "—"
                 elif sf_le > pl_le:
-                    diff_days = (sf_le - pl_le).days
-                    days      = f"{diff_days:,} days"
-                    result    = "✅ Outdated — needs update"
+                    days   = f"{(sf_le - pl_le).days:,} days"
+                    result = "✅ Outdated — needs update"
                 elif sf_le == pl_le:
                     days   = "0 days"
-                    result = "🟡 Up to date (same date)"
+                    result = "🟡 Up to date"
                 else:
                     days   = "—"
                     result = "🟡 Pleteo is more recent"
@@ -861,7 +897,8 @@ if focus_outd and outd_df is not None and len(outd_df) > 0:
                     "Smartflow Last Event": sf_le.strftime("%Y-%m-%d") if pd.notna(sf_le) else "—",
                     "Pleteo Last Event":    pl_le.strftime("%Y-%m-%d") if pd.notna(pl_le) else "—",
                     "Days Difference":      days,
-                    "Result":               result,
+                    "Outdated Result":      result,
+                    "Batch Status":         batch_status,
                 })
 
             spec_df = pd.DataFrame(rows)
@@ -869,15 +906,83 @@ if focus_outd and outd_df is not None and len(outd_df) > 0:
 
         spec_df = st.session_state.get("_specific_verify_df")
         if spec_df is not None and not spec_df.empty:
-            confirmed_outdated = spec_df[spec_df["Result"] == "✅ Outdated — needs update"]
-            sv1, sv2, sv3 = st.columns(3)
-            sv1.metric("Queried",             len(spec_df))
-            sv2.metric("Confirmed Outdated",  len(confirmed_outdated))
-            sv3.metric("Not Outdated / Error",len(spec_df) - len(confirmed_outdated))
+            confirmed_outdated = spec_df[spec_df["Outdated Result"] == "✅ Outdated — needs update"]
+            pending_in_batch   = spec_df[spec_df["Batch Status"].str.startswith("⏳ Pending")]
+            already_upd_shown  = spec_df[spec_df["Batch Status"].str.startswith("✅ Updated")]
+
+            sv1, sv2, sv3, sv4 = st.columns(4)
+            sv1.metric("Queried",          len(spec_df))
+            sv2.metric("Confirmed Outdated", len(confirmed_outdated))
+            sv3.metric("Pending in Batch", len(pending_in_batch))
+            sv4.metric("Already Updated",  len(already_upd_shown))
 
             st.dataframe(spec_df, use_container_width=True, hide_index=True)
 
+            # ── Confirm as Updated ────────────────────────────────────────────
+            if len(pending_in_batch) > 0:
+                st.divider()
+                st.markdown("**Confirm cases as updated in Pleteo**")
+                st.caption(
+                    "Select the cases below that have been successfully updated in Pleteo. "
+                    "This will be recorded in the comparator updates log."
+                )
+                pending_options = pending_in_batch["Case ID"].tolist()
+                to_confirm = st.multiselect(
+                    "Select cases to confirm as updated",
+                    options=pending_options,
+                    default=pending_options,
+                    key="confirm_upd_sel",
+                )
+                if to_confirm and st.button(
+                    f"✅ Confirm {len(to_confirm)} Case(s) as Updated",
+                    type="primary",
+                    key="confirm_upd_btn",
+                ):
+                    token_cu, repo_cu = _require_creds()
+                    batches_now2 = st.session_state._comp_batches or []
+                    id_to_batch2 = {}
+                    for b in batches_now2:
+                        col = next((c for c in ["Case ID","case_id"] if c in b["df"].columns), None)
+                        org_col = next((c for c in ["Organization Name","organization_name"] if c in b["df"].columns), None)
+                        if col is None: continue
+                        for cid in b["df"][col].dropna().astype(str):
+                            if cid not in id_to_batch2:
+                                org_val = "—"
+                                if org_col:
+                                    m = b["df"][b["df"][col].astype(str) == cid]
+                                    if not m.empty: org_val = m.iloc[0][org_col]
+                                id_to_batch2[cid] = {
+                                    "batch_number": b["number"],
+                                    "organization_name": org_val,
+                                }
+                    rows_to_confirm = []
+                    for cid in to_confirm:
+                        match_row = spec_df[spec_df["Case ID"] == cid]
+                        rows_to_confirm.append({
+                            "case_id":           cid,
+                            "organization_name": match_row.iloc[0]["Organization"] if not match_row.empty else "—",
+                            "country":           match_row.iloc[0]["Country"]       if not match_row.empty else "—",
+                            "batch_number":      id_to_batch2.get(cid, {}).get("batch_number", "—"),
+                        })
+                    with st.spinner("Saving confirmation…"):
+                        ok, updated_ul = confirm_cases_updated(rows_to_confirm, token_cu, repo_cu)
+                    if ok:
+                        st.session_state._comp_updates_df  = updated_ul
+                        st.session_state._comp_updates_sha = None
+                        # Refresh verify table to show updated status
+                        for idx, row in spec_df.iterrows():
+                            if row["Case ID"] in to_confirm:
+                                batch_n = id_to_batch2.get(row["Case ID"], {}).get("batch_number", "—")
+                                spec_df.at[idx, "Batch Status"] = f"✅ Updated (Batch #{batch_n})"
+                        st.session_state._specific_verify_df = spec_df
+                        st.success(f"✅ {len(to_confirm)} case(s) confirmed as updated.")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to save confirmation.")
+
+            # ── Generate preview ──────────────────────────────────────────────
             if len(confirmed_outdated) > 0:
+                st.divider()
                 if st.button(
                     f"⚙️ Generate Preview from {len(confirmed_outdated)} Outdated Case(s)",
                     type="primary",
