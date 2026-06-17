@@ -197,3 +197,74 @@ def find_batch_for_ids(ids, batches):
                 found.setdefault(eid, []).append(batch["number"])
     not_found = ids - set(found.keys())
     return found, not_found
+
+
+# ── Blacklist ─────────────────────────────────────────────────────────────────
+
+_BLACKLIST_PATH = "history_comparator/blacklist.csv"
+_BLACKLIST_COLS = ["case_id", "organization_name", "country", "added_at"]
+
+
+def get_blacklist(token, repo):
+    """
+    Load blacklist.csv from GitHub.
+    Returns (sha_or_None, DataFrame).
+    """
+    sha, content = _get_file_meta(token, repo, _BLACKLIST_PATH)
+    if content is None:
+        return None, pd.DataFrame(columns=_BLACKLIST_COLS)
+    try:
+        return sha, pd.read_csv(io.StringIO(content))
+    except Exception:
+        return sha, pd.DataFrame(columns=_BLACKLIST_COLS)
+
+
+def save_blacklist(df, token, repo, sha=None):
+    """Create or update blacklist.csv. Returns True on success."""
+    return _put_file(
+        token, repo, _BLACKLIST_PATH,
+        df.to_csv(index=False),
+        "Update comparator blacklist",
+        sha=sha,
+    )
+
+
+def add_to_blacklist(case_rows, token, repo):
+    """
+    Add a list of dicts {case_id, organization_name, country} to the blacklist.
+    Returns (success, updated_df).
+    """
+    sha, existing = get_blacklist(token, repo)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_rows = []
+    existing_ids = set(existing["case_id"].astype(str)) if not existing.empty else set()
+    for row in case_rows:
+        if str(row["case_id"]) not in existing_ids:
+            new_rows.append({
+                "case_id":           row["case_id"],
+                "organization_name": row.get("organization_name", ""),
+                "country":           row.get("country", ""),
+                "added_at":          now,
+            })
+    if not new_rows:
+        return True, existing  # nothing new to add
+    updated = pd.concat(
+        [existing, pd.DataFrame(new_rows)], ignore_index=True
+    )
+    ok = save_blacklist(updated, token, repo, sha=sha)
+    return ok, updated
+
+
+def remove_from_blacklist(case_ids_to_remove, token, repo):
+    """
+    Remove specific case_ids from the blacklist.
+    Returns (success, updated_df).
+    """
+    sha, existing = get_blacklist(token, repo)
+    if existing.empty:
+        return True, existing
+    updated = existing[
+        ~existing["case_id"].astype(str).isin(set(str(i) for i in case_ids_to_remove))
+    ].reset_index(drop=True)
+    ok = save_blacklist(updated, token, repo, sha=sha)
+    return ok, updated
