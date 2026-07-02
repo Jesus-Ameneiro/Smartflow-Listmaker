@@ -324,3 +324,76 @@ def confirm_cases_updated(case_rows, token, repo):
     updated = pd.concat([existing, pd.DataFrame(new_rows)], ignore_index=True)
     ok = push_comp_updates_log(updated, token, repo, sha=sha)
     return ok, updated
+
+
+# ── Update History (history_updater/) ────────────────────────────────────────
+
+_UPDATER_FOLDER = "history_updater"
+
+
+def get_update_history(token, repo, folder=_UPDATER_FOLDER):
+    """
+    Fetch all confirmed update history files from the GitHub repo.
+    Returns list of dicts: {number, name, path, sha, confirmed_at, df}
+    """
+    url = f"https://api.github.com/repos/{repo}/contents/{folder}"
+    resp = requests.get(url, headers=_headers(token), timeout=15)
+    if resp.status_code == 404:
+        return []
+    resp.raise_for_status()
+
+    entries = [
+        e for e in resp.json()
+        if e["name"].startswith("update_") and e["name"].endswith(".csv")
+    ]
+    entries.sort(key=lambda e: e["name"])
+
+    records = []
+    for i, entry in enumerate(entries, start=1):
+        raw = requests.get(entry["download_url"], timeout=15)
+        raw.raise_for_status()
+        df = pd.read_csv(io.StringIO(raw.text))
+        records.append({
+            "number":       i,
+            "name":         entry["name"],
+            "path":         entry["path"],
+            "sha":          entry["sha"],
+            "confirmed_at": _parse_ts(entry["name"].replace("update_", "batch_")),
+            "df":           df,
+        })
+    return records
+
+
+def push_update_history(output_df, token, repo, folder=_UPDATER_FOLDER):
+    """Push a confirmed update file to GitHub. Returns (success, filename)."""
+    ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"update_{ts}.csv"
+    path     = f"{folder}/{filename}"
+    ok = _put_file(
+        token, repo, path,
+        output_df.to_csv(index=False),
+        f"Add update history {ts}",
+    )
+    return ok, filename
+
+
+def delete_update_history(token, repo, path, sha):
+    """Delete an update history file. Returns True on success."""
+    url     = f"https://api.github.com/repos/{repo}/contents/{path}"
+    payload = {"message": f"Delete {path}", "sha": sha}
+    resp    = requests.delete(url, json=payload, headers=_headers(token), timeout=15)
+    return resp.status_code == 200
+
+
+def get_all_confirmed_update_ids(history_records):
+    """Return set of all External Case IDs confirmed across all history records."""
+    ids = set()
+    for rec in history_records:
+        col = next(
+            (c for c in ["External Case ID", "Case ID", "case_id"]
+             if c in rec["df"].columns),
+            None,
+        )
+        if col:
+            ids |= set(rec["df"][col].dropna().astype(str))
+    return ids
