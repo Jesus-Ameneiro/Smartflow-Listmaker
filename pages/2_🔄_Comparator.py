@@ -121,7 +121,8 @@ with uc2:
 
 if sf_upload and sf_upload.name != st.session_state._sf_name:
     try:
-        st.session_state._sf_df   = load_smartflow(sf_upload)
+        sf_bytes = sf_upload.read()
+        st.session_state._sf_df   = load_smartflow(sf_bytes)
         st.session_state._sf_name = sf_upload.name
         st.session_state._diff_df = None
         st.session_state._outd_df = None
@@ -133,7 +134,8 @@ if sf_upload and sf_upload.name != st.session_state._sf_name:
 
 if pl_upload and pl_upload.name != st.session_state._pl_name:
     try:
-        st.session_state._pl_df   = load_pleteo(pl_upload)
+        pl_bytes = pl_upload.read()
+        st.session_state._pl_df   = load_pleteo(pl_bytes, pl_upload.name)
         st.session_state._pl_name = pl_upload.name
         st.session_state._diff_df = None
         st.session_state._outd_df = None
@@ -225,7 +227,7 @@ else:
                 key="inspect_comp_batch",
             )
             sel_batch = next(b for b in batches if b["number"] == sel_num)
-            st.dataframe(sel_batch["df"], use_container_width=True, hide_index=True)
+            st.dataframe(sel_batch["df"], width="stretch", hide_index=True)
             st.download_button(
                 f"⬇️ Download Batch #{sel_num}",
                 data=sel_batch["df"].to_csv(index=False).encode(),
@@ -281,7 +283,7 @@ else:
                     "country": "Country",
                     "added_at": "Added At",
                 }),
-                use_container_width=True, hide_index=True,
+                width="stretch", hide_index=True,
             )
 
             # Remove selected cases from blacklist
@@ -399,7 +401,7 @@ else:
                     f"✅ {found_count} case(s) located in history."
                 )
 
-            st.dataframe(result_df, use_container_width=True, hide_index=True)
+            st.dataframe(result_df, width="stretch", hide_index=True)
 
 st.divider()
 
@@ -465,7 +467,7 @@ with cc1:
         st.dataframe(
             pd.DataFrame(sf_countries.items(), columns=["Country", "Cases"])
               .sort_values("Cases", ascending=False),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
     else:
         st.info("No country data found.")
@@ -477,7 +479,7 @@ with cc2:
         st.dataframe(
             pd.DataFrame(pl_countries.items(), columns=["Country", "Cases"])
               .sort_values("Cases", ascending=False),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
     else:
         st.info("No country data found.")
@@ -510,7 +512,7 @@ with sr_left:
                 status_report["status_counts"].items(),
                 columns=["Investigation Status", "Cases"],
             ).sort_values("Cases", ascending=False),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
     else:
         st.info("No Investigation Status data found.")
@@ -523,7 +525,7 @@ with sr_right:
                 status_report["investigator_counts"].items(),
                 columns=["Investigator", "Cases"],
             ).sort_values("Cases", ascending=False),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
     else:
         st.info("No Case Investigator assignments found.")
@@ -589,7 +591,7 @@ if excl_map:
             "Times Stored": info["times_stored"],
         })
     with st.expander(f"View {len(excl_map)} excluded case(s)"):
-        st.dataframe(pd.DataFrame(excl_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(excl_rows), width="stretch", hide_index=True)
 elif st.session_state._comp_batches is not None:
     count = len(st.session_state._comp_batches)
     st.success(
@@ -633,7 +635,7 @@ with st.expander(f"📋 Difference Cases — {len(diff_df):,} total", expanded=F
                  "No. ofMachines", "Last Event", "Case Status"]
     st.dataframe(
         diff_df[[c for c in diff_cols if c in diff_df.columns]],
-        use_container_width=True, hide_index=True,
+        width="stretch", hide_index=True,
     )
 
 # ── Outdated breakdown ────────────────────────────────────────────────────────
@@ -652,7 +654,7 @@ with st.expander(f"⏰ Outdated Cases — {len(outd_df):,} total", expanded=Fals
     ]
     st.dataframe(
         outd_display[[c for c in outd_cols if c in outd_display.columns]],
-        use_container_width=True, hide_index=True,
+        width="stretch", hide_index=True,
     )
 
 st.divider()
@@ -700,7 +702,7 @@ if focus_outd:
                 outd_status_counts.items(),
                 columns=["Investigation Status", "Outdated Cases"],
             ).sort_values("Outdated Cases", ascending=False),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
 
         all_statuses = sorted(outd_status_counts.keys())
@@ -916,7 +918,7 @@ if focus_outd and outd_df is not None and len(outd_df) > 0:
             sv3.metric("Pending in Batch", len(pending_in_batch))
             sv4.metric("Already Updated",  len(already_upd_shown))
 
-            st.dataframe(spec_df, use_container_width=True, hide_index=True)
+            st.dataframe(spec_df, width="stretch", hide_index=True)
 
             # ── Confirm as Updated ────────────────────────────────────────────
             if len(pending_in_batch) > 0:
@@ -1071,7 +1073,7 @@ if available_countries:
                 {"Country": c, "Available Cases": country_case_counts.get(c, 0)}
                 for c in available_countries
             ]).sort_values("Available Cases", ascending=False),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
 
     selected_countries = st.multiselect(
@@ -1191,7 +1193,7 @@ if pre_result is not None:
     # Selectable dataframe
     sel_event = st.dataframe(
         active_preview[disp_cols],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         on_select="rerun",
         selection_mode="multi-row",
@@ -1278,7 +1280,7 @@ if pre_result is not None:
     if excl_preview:
         with st.expander(f"🚫 Excluded cases — {len(excl_preview)} case(s)", expanded=False):
             excl_view = pre_result[pre_result["Case ID"].isin(excl_preview)][disp_cols]
-            st.dataframe(excl_view.reset_index(drop=True), use_container_width=True, hide_index=True)
+            st.dataframe(excl_view.reset_index(drop=True), width="stretch", hide_index=True)
 
     st.divider()
 
