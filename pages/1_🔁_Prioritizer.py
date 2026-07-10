@@ -13,7 +13,6 @@ import pandas as pd
 import streamlit as st
 
 from github_manager import (
-    delete_update_history,
     get_all_confirmed_update_ids,
     get_update_history,
     push_update_history,
@@ -133,88 +132,14 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 — UPDATE HISTORY (always visible)
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("2. Update History")
-
-token_h, repo_h = _gh_creds()
-if not token_h or not repo_h:
-    st.warning("Configure GitHub credentials to view update history.")
-else:
-    # Auto-load history on first render
-    if st.session_state._history is None:
-        with st.spinner("Loading update history…"):
-            st.session_state._history       = get_update_history(token_h, repo_h)
-            st.session_state._confirmed_ids = get_all_confirmed_update_ids(
-                st.session_state._history
-            )
-
-    history = st.session_state._history
-
-    # Summary metrics
-    total_h = sum(len(b["df"]) for b in history) if history else 0
-    hm1, hm2 = st.columns(2)
-    hm1.metric("Confirmed Updates", len(history))
-    hm2.metric("Total Cases Updated", f"{total_h:,}")
-
-    with st.expander("📂 View & Manage Update History", expanded=False):
-        if st.button("🔄 Refresh History", key="refresh_hist"):
-            with st.spinner("Fetching…"):
-                st.session_state._history       = get_update_history(token_h, repo_h)
-                st.session_state._confirmed_ids = get_all_confirmed_update_ids(
-                    st.session_state._history
-                )
-            st.rerun()
-
-        if not history:
-            st.info("No confirmed update history yet.")
-        else:
-            hdr = st.columns([1, 2, 1, 1])
-            hdr[0].markdown("**#**")
-            hdr[1].markdown("**Confirmed At**")
-            hdr[2].markdown("**Cases**")
-            hdr[3].markdown("**Action**")
-            st.divider()
-
-            for b in history:
-                c1, c2, c3, c4 = st.columns([1, 2, 1, 1])
-                c1.write(f"#{b['number']}")
-                c2.write(b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                         if b["confirmed_at"] else "—")
-                c3.write(len(b["df"]))
-                if c4.button("🗑️ Delete", key=f"del_hist_{b['sha'][:8]}"):
-                    with st.spinner("Deleting…"):
-                        ok = delete_update_history(token_h, repo_h, b["path"], b["sha"])
-                    if ok:
-                        st.session_state._history = None
-                        st.session_state._confirmed_ids = None
-                        st.rerun()
-                    else:
-                        st.error("❌ Deletion failed.")
-                st.divider()
-
-            sel = st.selectbox(
-                "Inspect record",
-                options=[b["number"] for b in history],
-                format_func=lambda n: f"Record #{n}",
-                key="hist_inspect",
-            )
-            sel_b = next(b for b in history if b["number"] == sel)
-            st.dataframe(sel_b["df"], width="stretch", hide_index=True)
-
-            combined = pd.concat(
-                [b["df"].assign(**{"Record #": b["number"],
-                                  "Confirmed At": b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                                  if b["confirmed_at"] else "—"})
-                 for b in history],
-                ignore_index=True,
-            )
-            st.download_button(
-                f"⬇️ Download All Records ({total_h:,} cases)",
-                data=combined.to_csv(index=False).encode(),
-                file_name=f"update_history_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                key="dl_all_hist",
-                type="primary",
-            )
+# ── Silent background load — needed for Section 5 (exclude confirmed cases) ──
+_bg_token, _bg_repo = _gh_creds()
+if _bg_token and _bg_repo and st.session_state._history is None:
+    with st.spinner("Loading update history…"):
+        st.session_state._history       = get_update_history(_bg_token, _bg_repo)
+        st.session_state._confirmed_ids = get_all_confirmed_update_ids(
+            st.session_state._history
+        )
 
 st.divider()
 
@@ -226,7 +151,7 @@ if sf_df is None or pl_df is None:
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 3 — ENTER CASE IDs
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("3. Enter Case IDs")
+st.header("2. Enter Case IDs")
 st.caption("Paste External Case IDs separated by commas.")
 
 id_input = st.text_area(
@@ -261,7 +186,7 @@ if results_df is None:
     st.info("Enter Case IDs above and click **Verify & Flag Cases** to begin.")
     st.stop()
 
-st.header("4. Verification Results")
+st.header("3. Verification Results")
 
 # Summary metrics
 total_q  = len(results_df)
@@ -312,7 +237,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 5 — OUTPUT CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("5. Output Configuration")
+st.header("4. Output Configuration")
 
 # Previously confirmed exclusion
 confirmed_ids = st.session_state._confirmed_ids or set()
@@ -384,7 +309,7 @@ if output_df is None:
     st.info("Configure output above and click **Generate Output** to continue.")
     st.stop()
 
-st.header("6. Preview & Generate")
+st.header("5. Preview & Generate")
 
 # Priority summary of output
 out_with_priority = st.session_state._outdated_df[
@@ -411,7 +336,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 7 — CONFIRM & SAVE
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("7. Confirm Cases as Updated")
+st.header("6. Confirm Cases as Updated")
 st.caption(
     "Confirm when these cases have been manually updated in Pleteo. "
     "They will be recorded in the Update History and can be excluded from future outputs."
