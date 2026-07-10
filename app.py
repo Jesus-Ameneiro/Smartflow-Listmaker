@@ -81,8 +81,7 @@ with uc2:
 
 if sf_up and sf_up.name != st.session_state._sf_name:
     try:
-        sf_bytes = sf_up.read()
-        st.session_state._sf_df   = load_smartflow(sf_bytes)
+        st.session_state._sf_df   = load_smartflow(sf_up)
         st.session_state._sf_name = sf_up.name
         st.session_state._results_df  = None
         st.session_state._outdated_df = None
@@ -93,8 +92,7 @@ if sf_up and sf_up.name != st.session_state._sf_name:
 
 if pl_up and pl_up.name != st.session_state._pl_name:
     try:
-        pl_bytes = pl_up.read()
-        st.session_state._pl_df   = load_pleteo(pl_bytes, pl_up.name)
+        st.session_state._pl_df   = load_pleteo(pl_up)
         st.session_state._pl_name = pl_up.name
         st.session_state._results_df  = None
         st.session_state._outdated_df = None
