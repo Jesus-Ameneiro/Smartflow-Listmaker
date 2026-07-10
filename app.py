@@ -81,7 +81,8 @@ with uc2:
 
 if sf_up and sf_up.name != st.session_state._sf_name:
     try:
-        st.session_state._sf_df   = load_smartflow(sf_up)
+        sf_bytes = sf_up.read()
+        st.session_state._sf_df   = load_smartflow(sf_bytes)
         st.session_state._sf_name = sf_up.name
         st.session_state._results_df  = None
         st.session_state._outdated_df = None
@@ -92,7 +93,8 @@ if sf_up and sf_up.name != st.session_state._sf_name:
 
 if pl_up and pl_up.name != st.session_state._pl_name:
     try:
-        st.session_state._pl_df   = load_pleteo(pl_up)
+        pl_bytes = pl_up.read()
+        st.session_state._pl_df   = load_pleteo(pl_bytes, pl_up.name)
         st.session_state._pl_name = pl_up.name
         st.session_state._results_df  = None
         st.session_state._outdated_df = None
@@ -198,7 +200,7 @@ else:
                 key="hist_inspect",
             )
             sel_b = next(b for b in history if b["number"] == sel)
-            st.dataframe(sel_b["df"], use_container_width=True, hide_index=True)
+            st.dataframe(sel_b["df"], width="stretch", hide_index=True)
 
             combined = pd.concat(
                 [b["df"].assign(**{"Record #": b["number"],
@@ -289,7 +291,7 @@ st.divider()
 
 # Full results table
 with st.expander("📋 Full Verification Results (all cases)", expanded=False):
-    st.dataframe(results_df, use_container_width=True, hide_index=True)
+    st.dataframe(results_df, width="stretch", hide_index=True)
 
 # Outdated table (sorted by priority)
 if n_outd > 0:
@@ -300,7 +302,7 @@ if n_outd > 0:
             "No. of Machines", "Smartflow Last Event", "Pleteo Last Event",
             "Months Outdated", "Priority", "Investigation Status", "Investigator",
         ]],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 else:
@@ -396,7 +398,7 @@ op_cols[0].metric("Total in Output", len(output_df))
 for i, (flag, _) in enumerate(sorted(FLAG_ORDER.items(), key=lambda x: x[1])):
     op_cols[i + 1].metric(flag, int(out_flag_counts.get(flag, 0)))
 
-st.dataframe(output_df, use_container_width=True, hide_index=True)
+st.dataframe(output_df, width="stretch", hide_index=True)
 
 st.download_button(
     "⬇️ Download Output CSV",
