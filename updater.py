@@ -3,8 +3,17 @@ Case Update Prioritizer — Core Logic
 Flags outdated cases by comparing Smartflow vs Pleteo Last Event dates.
 """
 
+import io
+
 import pandas as pd
+import streamlit as st
 from dateutil.relativedelta import relativedelta
+
+# Columns loaded from each file — prune everything else to save memory
+_SF_COLS = ["Case ID", "Last Event", "Organization Name", "Country",
+            "No. ofMachines", "Case Status"]
+_PL_COLS = ["External Case ID", "Last Event",
+            "Investigation Status", "Case Investigators"]
 
 
 # ── Flag definitions ──────────────────────────────────────────────────────────
@@ -55,25 +64,34 @@ def months_diff(sf_date, pl_date):
 
 # ── File loaders ──────────────────────────────────────────────────────────────
 
-def load_smartflow(uploaded_file):
-    df = pd.read_csv(uploaded_file, low_memory=False)
+@st.cache_data(show_spinner=False)
+def load_smartflow(file_bytes):
+    """Load and prune Smartflow CSV. Cached by file content."""
+    available = pd.read_csv(io.BytesIO(file_bytes), nrows=0).columns.tolist()
+    use_cols  = [c for c in _SF_COLS if c in available]
+    df = pd.read_csv(io.BytesIO(file_bytes), usecols=use_cols, low_memory=False)
     df.columns = [c.strip() for c in df.columns]
     if "Case ID" not in df.columns:
         raise ValueError("Smartflow file must contain a 'Case ID' column.")
-    df["_sf_case_id"]   = df["Case ID"].astype(str).str.strip()
+    df["_sf_case_id"]    = df["Case ID"].astype(str).str.strip()
     df["_sf_last_event"] = pd.to_datetime(
-        df["Last Event"].astype(str).str.strip(),
-        format="%d-%b-%y", errors="coerce"
+        df["Last Event"].astype(str).str.strip(), format="%d-%b-%y", errors="coerce"
     )
     return df
 
 
-def load_pleteo(uploaded_file):
-    name = uploaded_file.name.lower()
+@st.cache_data(show_spinner=False)
+def load_pleteo(file_bytes, file_name=""):
+    """Load and prune Pleteo file. Cached by file content."""
+    name = file_name.lower()
     if name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
+        available = pd.read_csv(io.BytesIO(file_bytes), nrows=0).columns.tolist()
+        use_cols  = [c for c in _PL_COLS if c in available]
+        df = pd.read_csv(io.BytesIO(file_bytes), usecols=use_cols)
     elif name.endswith((".xlsx", ".xls")):
-        df = pd.read_excel(uploaded_file)
+        available = pd.read_excel(io.BytesIO(file_bytes), nrows=0).columns.tolist()
+        use_cols  = [c for c in _PL_COLS if c in available]
+        df = pd.read_excel(io.BytesIO(file_bytes), usecols=use_cols)
     else:
         raise ValueError("Unsupported Pleteo file type.")
     df.columns = [c.strip() for c in df.columns]
