@@ -17,9 +17,12 @@ from github_manager import (
     add_to_blacklist,
     confirm_cases_updated,
     delete_batch,
+    delete_update_history,
     get_all_batches,
+    get_all_confirmed_update_ids,
     get_blacklist,
     get_comp_updates_log,
+    get_update_history,
     remove_from_blacklist,
 )
 
@@ -55,6 +58,8 @@ for k, v in {
     "_blacklist_sha":    None,
     "_comp_updates_df":  None,
     "_comp_updates_sha": None,
+    "_history":          None,
+    "_confirmed_ids":    None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -66,7 +71,7 @@ if not token or not repo:
 
 # Auto-load on first render
 if st.session_state._comp_batches is None:
-    with st.spinner("Loading history…"):
+    with st.spinner("Loading comparator history…"):
         st.session_state._comp_batches = get_all_batches(token, repo, HISTORY_FOLDER)
 
 if st.session_state._blacklist_df is None:
@@ -79,12 +84,94 @@ if st.session_state._comp_updates_df is None:
     st.session_state._comp_updates_sha = sha_ul
     st.session_state._comp_updates_df  = ul_df
 
+if st.session_state._history is None:
+    with st.spinner("Loading update history…"):
+        st.session_state._history       = get_update_history(token, repo)
+        st.session_state._confirmed_ids = get_all_confirmed_update_ids(
+            st.session_state._history
+        )
+
 batches = st.session_state._comp_batches
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 1 — BATCH HISTORY
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("1. Confirmed Batch History")
+st.header("1. Update History")
+st.caption(
+    "All confirmed case updates from the Case Update Prioritizer. "
+    "Managed separately from the Comparator batch history."
+)
+
+upd_history = st.session_state._history or []
+total_upd   = sum(len(b["df"]) for b in upd_history)
+um1, um2    = st.columns(2)
+um1.metric("Confirmed Update Records", len(upd_history))
+um2.metric("Total Cases Updated",      f"{total_upd:,}")
+
+if not upd_history:
+    st.info("No confirmed update records yet.")
+else:
+    st.divider()
+    uhdr = st.columns([1, 2, 1, 1])
+    uhdr[0].markdown("**#**")
+    uhdr[1].markdown("**Confirmed At**")
+    uhdr[2].markdown("**Cases**")
+    uhdr[3].markdown("**Action**")
+    st.divider()
+
+    for b in upd_history:
+        uc1, uc2, uc3, uc4 = st.columns([1, 2, 1, 1])
+        uc1.write(f"#{b['number']}")
+        uc2.write(b["confirmed_at"].strftime("%Y-%m-%d %H:%M") if b["confirmed_at"] else "—")
+        uc3.write(len(b["df"]))
+        if uc4.button("🗑️ Delete", key=f"del_upd_{b['sha'][:8]}"):
+            with st.spinner(f"Deleting record #{b['number']}…"):
+                ok = delete_update_history(token, repo, b["path"], b["sha"])
+            if ok:
+                st.session_state._history       = None
+                st.session_state._confirmed_ids = None
+                st.rerun()
+            else:
+                st.error("❌ Deletion failed.")
+        st.divider()
+
+    u_sel = st.selectbox(
+        "Inspect record",
+        options=[b["number"] for b in upd_history],
+        format_func=lambda n: f"Record #{n}",
+        key="upd_inspect",
+    )
+    u_sel_b = next(b for b in upd_history if b["number"] == u_sel)
+    st.dataframe(u_sel_b["df"], width="stretch", hide_index=True)
+
+    u_dl1, u_dl2 = st.columns(2)
+    u_dl1.download_button(
+        f"⬇️ Download Record #{u_sel}",
+        data=u_sel_b["df"].to_csv(index=False).encode(),
+        file_name=f"update_record_{u_sel:03d}.csv",
+        mime="text/csv",
+        key=f"dl_upd_{u_sel}",
+    )
+    u_combined = pd.concat(
+        [b["df"].assign(**{
+            "Record #":     b["number"],
+            "Confirmed At": b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
+                            if b["confirmed_at"] else "—",
+         }) for b in upd_history],
+        ignore_index=True,
+    )
+    u_dl2.download_button(
+        f"⬇️ Download All Records ({total_upd:,} cases)",
+        data=u_combined.to_csv(index=False).encode(),
+        file_name=f"update_history_all_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        key="dl_upd_all",
+        type="primary",
+    )
+
+st.divider()
+
+st.header("2. Comparator Batch History")
 st.caption(
     "All confirmed Comparator outputs stored in GitHub. "
     "Batch numbers are derived from chronological order — "
@@ -93,13 +180,17 @@ st.caption(
 
 if st.button("🔄 Refresh All", key="refresh_all"):
     with st.spinner("Refreshing…"):
-        st.session_state._comp_batches    = get_all_batches(token, repo, HISTORY_FOLDER)
+        st.session_state._comp_batches     = get_all_batches(token, repo, HISTORY_FOLDER)
         sha, bl_df = get_blacklist(token, repo)
-        st.session_state._blacklist_sha   = sha
-        st.session_state._blacklist_df    = bl_df
+        st.session_state._blacklist_sha    = sha
+        st.session_state._blacklist_df     = bl_df
         sha_ul, ul_df = get_comp_updates_log(token, repo)
         st.session_state._comp_updates_sha = sha_ul
         st.session_state._comp_updates_df  = ul_df
+        st.session_state._history          = get_update_history(token, repo)
+        st.session_state._confirmed_ids    = get_all_confirmed_update_ids(
+            st.session_state._history
+        )
     st.rerun()
 
 batches = st.session_state._comp_batches
@@ -181,7 +272,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 — BLACKLIST MANAGEMENT
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("2. Black List")
+st.header("3. Black List")
 st.caption(
     "Cases in the black list are automatically excluded from all future "
     "Comparator output generation. Cases can be added from the Comparator "
@@ -228,7 +319,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 3 — CASE ID LOOKUP
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("3. Verify Case IDs Against History")
+st.header("4. Verify Case IDs Against History")
 st.caption(
     "Paste Case IDs to check whether they exist in any confirmed batch, "
     "and optionally confirm them as updated in Pleteo."
