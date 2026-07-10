@@ -32,10 +32,13 @@ from comparator import (
 from github_manager import (
     add_to_blacklist,
     confirm_cases_updated,
+    delete_draft,
     get_all_batches,
     get_blacklist,
     get_comp_updates_log,
+    load_draft,
     push_batch,
+    save_draft,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -97,6 +100,8 @@ for k, v in {
     "_specific_verify_df": None,
     "_comp_updates_df":    None,
     "_comp_updates_sha":   None,
+    "_draft_sha":          None,
+    "_draft_restored":     False,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -163,6 +168,25 @@ if _bg_token and _bg_repo:
         st.session_state._blacklist_df  = _bl
 
 st.divider()
+
+# ── Restore draft after refresh ───────────────────────────────────────────────
+_dr_token, _dr_repo = _gh_creds()
+if (
+    _dr_token and _dr_repo
+    and st.session_state._output_df is None
+    and not st.session_state._draft_restored
+):
+    _d_sha, _d_df = load_draft(_dr_token, _dr_repo)
+    if _d_df is not None:
+        st.session_state._output_df      = _d_df
+        st.session_state._draft_sha      = _d_sha
+        st.session_state._draft_restored = True
+        st.session_state._confirmed_comp = False
+        st.warning(
+            "📋 **Draft recovered.** Your previous output was restored after the page "
+            "refreshed. Scroll to **Section 7 — Preview & Generate** to review and "
+            "confirm it, or generate a new output to replace it."
+        )
 
 if sf_df is None or pl_df is None:
     st.info("Upload both files to begin.")
@@ -1046,6 +1070,12 @@ if pre_result is not None:
     if st.button("⚙️ Generate Output File", type="primary", key="gen_output"):
         st.session_state._output_df      = active_preview
         st.session_state._confirmed_comp = False
+        st.session_state._draft_restored = False
+        # Auto-save draft so it survives a page refresh
+        _sv_token, _sv_repo = _gh_creds()
+        if _sv_token and _sv_repo:
+            with st.spinner("Saving draft…"):
+                save_draft(active_preview, _sv_token, _sv_repo)
 
 
 output_df = st.session_state._output_df
@@ -1083,7 +1113,12 @@ if output_df is not None:
             if ok:
                 st.session_state._confirmed_comp = True
                 st.session_state._comp_batches   = None
+                st.session_state._draft_restored = False
                 st.success(f"✅ Saved to history: `{fname}`")
+                # Delete draft — it is now confirmed
+                _del_token, _del_repo = _gh_creds()
+                if _del_token and _del_repo:
+                    delete_draft(_del_token, _del_repo)
                 st.balloons()
             else:
                 st.error("❌ Push failed. Check token permissions.")
