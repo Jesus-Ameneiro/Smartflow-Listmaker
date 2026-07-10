@@ -32,12 +32,10 @@ from comparator import (
 from github_manager import (
     add_to_blacklist,
     confirm_cases_updated,
-    delete_batch,
     get_all_batches,
     get_blacklist,
     get_comp_updates_log,
     push_batch,
-    remove_from_blacklist,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -151,257 +149,20 @@ pl_df = st.session_state._pl_df
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 — COMPARATOR HISTORY  (always visible, no files required)
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("2. Comparator History")
-
-_hist_token, _hist_repo = _gh_creds()
-if not _hist_token or not _hist_repo:
-    st.warning("Configure GitHub credentials to view history.")
-else:
-    # Auto-load history and blacklist on first render
+# ── Silent background load of history + blacklist ────────────────────────────
+# Batches and blacklist are needed for validation (Section 4) and pool
+# exclusion (Section 6). Management is handled in the History page.
+_bg_token, _bg_repo = _gh_creds()
+if _bg_token and _bg_repo:
     if st.session_state._comp_batches is None:
-        with st.spinner("Loading history…"):
+        with st.spinner("Loading history for validation…"):
             st.session_state._comp_batches = get_all_batches(
-                _hist_token, _hist_repo, HISTORY_FOLDER
+                _bg_token, _bg_repo, HISTORY_FOLDER
             )
     if st.session_state._blacklist_df is None:
-        sha, bl_df = get_blacklist(_hist_token, _hist_repo)
-        st.session_state._blacklist_sha = sha
-        st.session_state._blacklist_df  = bl_df
-
-    batches = st.session_state._comp_batches
-
-    # Always show summary metrics outside the expander
-    if batches:
-        total_cases_all = sum(len(b["df"]) for b in batches)
-        hm1, hm2, hm3 = st.columns(3)
-        hm1.metric("Confirmed Batches", len(batches))
-        hm2.metric("Total Cases", f"{total_cases_all:,}")
-        hm3.metric("Pending (Batch #19)", "600")
-    elif batches is not None:
-        st.info("No confirmed comparator outputs found yet.")
-
-    # All detail inside a collapsed expander
-    with st.expander("📂 View & Manage Batch History", expanded=False):
-        if st.button("🔄 Refresh History", key="load_comp_hist"):
-            with st.spinner("Fetching…"):
-                st.session_state._comp_batches = get_all_batches(
-                    _hist_token, _hist_repo, HISTORY_FOLDER
-                )
-            st.rerun()
-
-        if batches:
-            st.divider()
-
-            # ── Batch list ────────────────────────────────────────────────────
-            header_cols = st.columns([1, 2, 1, 1])
-            header_cols[0].markdown("**Batch #**")
-            header_cols[1].markdown("**Confirmed At**")
-            header_cols[2].markdown("**Cases**")
-            header_cols[3].markdown("**Action**")
-            st.divider()
-
-            for b in batches:
-                c1, c2, c3, c4 = st.columns([1, 2, 1, 1])
-                c1.write(f"#{b['number']}")
-                c2.write(
-                    b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                    if b["confirmed_at"] else "—"
-                )
-                c3.write(len(b["df"]))
-                if c4.button("🗑️ Delete", key=f"del_comp_{b['sha'][:8]}"):
-                    with st.spinner(f"Deleting Batch #{b['number']}…"):
-                        ok = delete_batch(_hist_token, _hist_repo, b["path"], b["sha"])
-                    if ok:
-                        st.success(f"Batch #{b['number']} deleted.")
-                        st.session_state._comp_batches = None
-                        st.rerun()
-                    else:
-                        st.error("❌ Deletion failed.")
-                st.divider()
-
-            # ── Inspect individual batch ──────────────────────────────────────
-            sel_num = st.selectbox(
-                "Inspect batch",
-                options=[b["number"] for b in batches],
-                format_func=lambda n: f"Batch #{n}",
-                key="inspect_comp_batch",
-            )
-            sel_batch = next(b for b in batches if b["number"] == sel_num)
-            st.dataframe(sel_batch["df"], width="stretch", hide_index=True)
-            st.download_button(
-                f"⬇️ Download Batch #{sel_num}",
-                data=sel_batch["df"].to_csv(index=False).encode(),
-                file_name=f"comparator_batch_{sel_num:03d}.csv",
-                mime="text/csv",
-                key=f"dl_comp_{sel_num}",
-            )
-
-            st.divider()
-
-            # ── Download all batches combined ─────────────────────────────────
-            st.caption(
-                "Combines every confirmed batch into a single file with "
-                "**Batch #** and **Confirmed At** columns for identification."
-            )
-            combined_parts = []
-            for b in batches:
-                part = b["df"].copy()
-                part.insert(0, "Batch #", b["number"])
-                part.insert(1, "Confirmed At",
-                    b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                    if b["confirmed_at"] else "—"
-                )
-                combined_parts.append(part)
-            combined_df = pd.concat(combined_parts, ignore_index=True)
-            st.download_button(
-                f"⬇️ Download All {len(batches)} Batches ({total_cases_all:,} cases)",
-                data=combined_df.to_csv(index=False).encode(),
-                file_name=f"comparator_all_batches_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                key="dl_all_batches",
-                type="primary",
-            )
-
-    st.divider()
-
-    # ── Black List Management ─────────────────────────────────────────────────
-    with st.expander("🚫 Black List Management", expanded=False):
-        st.caption(
-            "Cases in the black list are automatically excluded from all future "
-            "output generation. Add cases from the preview or manage entries here."
-        )
-
-        bl_df = st.session_state._blacklist_df
-        if bl_df is None or bl_df.empty:
-            st.info("The black list is empty.")
-        else:
-            st.metric("Black Listed Cases", len(bl_df))
-            st.dataframe(
-                bl_df.rename(columns={
-                    "case_id": "Case ID",
-                    "organization_name": "Organization",
-                    "country": "Country",
-                    "added_at": "Added At",
-                }),
-                width="stretch", hide_index=True,
-            )
-
-            # Remove selected cases from blacklist
-            remove_ids = st.multiselect(
-                "Select Case IDs to remove from black list",
-                options=bl_df["case_id"].tolist(),
-                key="bl_remove_sel",
-            )
-            if remove_ids and st.button(
-                f"✅ Remove {len(remove_ids)} case(s) from Black List",
-                key="bl_remove_btn",
-            ):
-                with st.spinner("Updating black list…"):
-                    ok, updated = remove_from_blacklist(
-                        remove_ids, _hist_token, _hist_repo
-                    )
-                if ok:
-                    st.session_state._blacklist_df  = updated
-                    st.session_state._blacklist_sha = None
-                    st.success(f"✅ Removed {len(remove_ids)} case(s) from black list.")
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to update black list.")
-
-        if st.button("🔄 Refresh Black List", key="bl_refresh"):
-            sha, bl_df = get_blacklist(_hist_token, _hist_repo)
-            st.session_state._blacklist_sha = sha
-            st.session_state._blacklist_df  = bl_df
-            st.rerun()
-
-    # ── Case ID Lookup ────────────────────────────────────────────────────────
-    with st.expander("🔍 Verify Case IDs Against History", expanded=False):
-        st.caption(
-            "Paste one or more Case IDs separated by commas to check whether "
-            "they exist in any confirmed batch and see their update status."
-        )
-
-        lookup_input = st.text_area(
-            "Case IDs",
-            placeholder="e.g. 648494#1, 957340#1, 884133#1",
-            height=90,
-            key="lookup_input",
-        )
-
-        if st.button("🔎 Verify", key="lookup_btn") and lookup_input.strip():
-            query_ids = {x.strip() for x in lookup_input.split(",") if x.strip()}
-            batches_now = st.session_state._comp_batches or []
-
-            # Build lookup index: case_id → list of {batch #, confirmed_at}
-            id_to_batches = {}
-            for b in batches_now:
-                col = next(
-                    (c for c in ["Case ID", "case_id"] if c in b["df"].columns),
-                    None,
-                )
-                if col is None:
-                    continue
-                for cid in b["df"][col].dropna().astype(str):
-                    if cid in query_ids:
-                        id_to_batches.setdefault(cid, []).append(b)
-
-            # Build results table
-            rows = []
-            for qid in sorted(query_ids):
-                if qid in id_to_batches:
-                    for b in id_to_batches[qid]:
-                        # Get org name from batch df
-                        col = next(
-                            (c for c in ["Case ID", "case_id"]
-                             if c in b["df"].columns), None
-                        )
-                        org_col = next(
-                            (c for c in ["Organization Name", "organization_name"]
-                             if c in b["df"].columns), None
-                        )
-                        org = "—"
-                        if col and org_col:
-                            match = b["df"][b["df"][col].astype(str) == qid]
-                            if not match.empty:
-                                org = match.iloc[0][org_col]
-                        rows.append({
-                            "Case ID":      qid,
-                            "Organization": org,
-                            "Batch #":      f"#{b['number']}",
-                            "Confirmed At": (
-                                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                                if b["confirmed_at"] else "—"
-                            ),
-                            "Status": "✅ In History",
-                        })
-                else:
-                    rows.append({
-                        "Case ID":      qid,
-                        "Organization": "—",
-                        "Batch #":      "—",
-                        "Confirmed At": "—",
-                        "Status":       "❌ Not Found",
-                    })
-
-            result_df = pd.DataFrame(rows)
-            found_count    = (result_df["Status"] == "✅ In History").sum()
-            notfound_count = (result_df["Status"] == "❌ Not Found").sum()
-
-            lm1, lm2, lm3 = st.columns(3)
-            lm1.metric("Queried",   len(query_ids))
-            lm2.metric("Found",     found_count)
-            lm3.metric("Not Found", notfound_count)
-
-            if notfound_count:
-                st.warning(
-                    f"⚠️ {notfound_count} case(s) not found in any confirmed batch."
-                )
-            if found_count:
-                st.success(
-                    f"✅ {found_count} case(s) located in history."
-                )
-
-            st.dataframe(result_df, width="stretch", hide_index=True)
+        _sha, _bl = get_blacklist(_bg_token, _bg_repo)
+        st.session_state._blacklist_sha = _sha
+        st.session_state._blacklist_df  = _bl
 
 st.divider()
 
@@ -454,7 +215,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 — COUNTRY DISTRIBUTION
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("3. Country Distribution")
+st.header("2. Country Distribution")
 
 sf_countries = smartflow_country_dist(sf_df)
 pl_countries = pleteo_country_dist(pl_df, KNOWN_COUNTRIES)
@@ -490,7 +251,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 3 — PLETEO INVESTIGATION STATUS REPORT
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("4. Pleteo — Investigation Status Report")
+st.header("3. Pleteo — Investigation Status Report")
 st.caption(
     "Status and investigator data sourced exclusively from the Pleteo file. "
     "Difference cases (not in Pleteo) have no status or investigator by definition."
@@ -536,7 +297,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 4 — VALIDATE AGAINST HISTORY
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("5. Validate Against History")
+st.header("4. Validate Against History")
 st.caption(
     "Cases confirmed within the expiration window will be excluded. "
     "Cases outside the window are eligible for inclusion again."
@@ -606,7 +367,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 5 — COMPARISON REPORT
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("6. Comparison Report")
+st.header("5. Comparison Report")
 
 sf_pool = sf_df[~sf_df["_case_id"].isin(excl_map.keys())].copy()
 
@@ -663,7 +424,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 6 — OUTPUT CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("7. Output Configuration")
+st.header("6. Output Configuration")
 
 # ── Focus ─────────────────────────────────────────────────────────────────────
 st.subheader("Focus")
@@ -1124,7 +885,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 7 — PREVIEW & GENERATE
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("8. Preview & Generate")
+st.header("7. Preview & Generate")
 
 override_limit = False
 if total_requested > MAX_CASES:
@@ -1306,7 +1067,7 @@ if output_df is not None:
     # ─────────────────────────────────────────────────────────────────────────
     # SECTION 8 — CONFIRM & SAVE TO HISTORY
     # ─────────────────────────────────────────────────────────────────────────
-    st.header("9. Confirm & Save to History")
+    st.header("8. Confirm & Save to History")
     st.caption(
         "Confirming saves this output as a history record. "
         "These cases will be excluded from future outputs within the expiration window."
