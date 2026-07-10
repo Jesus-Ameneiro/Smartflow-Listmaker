@@ -8,7 +8,6 @@ import re
 from datetime import datetime
 
 import pandas as pd
-import streamlit as st
 from dateutil.relativedelta import relativedelta
 
 # Only load the columns we actually need — reduces memory by ~60%
@@ -30,12 +29,12 @@ def _parse_machines(val):
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner=False)
-def load_smartflow(file_bytes):
-    """Load and prune Smartflow CSV. Cached by file content."""
-    available = pd.read_csv(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
-    use_cols  = [c for c in _SF_COLS if c in available]
-    df = pd.read_csv(io.BytesIO(file_bytes), usecols=use_cols, low_memory=False)
+def load_smartflow(uploaded_file):
+    """Load and prune Smartflow CSV. Only reads needed columns."""
+    raw   = uploaded_file.read()
+    avail = pd.read_csv(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
+    cols  = [c for c in _SF_COLS if c in avail]
+    df    = pd.read_csv(io.BytesIO(raw), usecols=cols, low_memory=False)
     df.columns = [c.strip() for c in df.columns]
 
     required = {"Case ID", "No. ofMachines", "Last Event", "Country"}
@@ -52,18 +51,18 @@ def load_smartflow(file_bytes):
     return df
 
 
-@st.cache_data(show_spinner=False)
-def load_pleteo(file_bytes, file_name=""):
-    """Load and prune Pleteo file. Cached by file content."""
-    name = file_name.lower()
+def load_pleteo(uploaded_file):
+    """Load and prune Pleteo file. Only reads needed columns."""
+    name = uploaded_file.name.lower()
+    raw  = uploaded_file.read()
     if name.endswith(".csv"):
-        available = pd.read_csv(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
-        use_cols  = [c for c in _PL_COLS if c in available]
-        df = pd.read_csv(io.BytesIO(file_bytes), usecols=use_cols)
+        avail = pd.read_csv(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
+        cols  = [c for c in _PL_COLS if c in avail]
+        df    = pd.read_csv(io.BytesIO(raw), usecols=cols)
     elif name.endswith((".xlsx", ".xls")):
-        available = pd.read_excel(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
-        use_cols  = [c for c in _PL_COLS if c in available]
-        df = pd.read_excel(io.BytesIO(file_bytes), usecols=use_cols)
+        avail = pd.read_excel(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
+        cols  = [c for c in _PL_COLS if c in avail]
+        df    = pd.read_excel(io.BytesIO(raw), usecols=cols)
     else:
         raise ValueError("Unsupported Pleteo file type.")
 
