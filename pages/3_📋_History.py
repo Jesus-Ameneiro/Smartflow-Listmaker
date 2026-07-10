@@ -23,6 +23,7 @@ from github_manager import (
     get_blacklist,
     get_comp_updates_log,
     get_update_history,
+    push_batch,
     remove_from_blacklist,
 )
 
@@ -266,6 +267,42 @@ else:
         key="dl_all_hist",
         type="primary",
     )
+
+st.divider()
+
+# ── Confirm from file ─────────────────────────────────────────────────────────
+st.subheader("📁 Confirm Output File to History")
+st.caption(
+    "Upload a previously generated output CSV to store it directly in the "
+    "Comparator batch history — useful if the session was lost before confirming."
+)
+upload_confirm = st.file_uploader(
+    "Upload output CSV (.csv)",
+    type=["csv"],
+    key="upload_confirm_csv",
+)
+if upload_confirm is not None:
+    try:
+        uploaded_df = pd.read_csv(upload_confirm)
+        st.success(f"✅ **{len(uploaded_df):,}** cases loaded — review below.")
+        st.dataframe(uploaded_df.head(10), width="stretch", hide_index=True)
+        if len(uploaded_df) > 10:
+            st.caption(f"Showing first 10 of {len(uploaded_df):,} rows.")
+        if st.button(
+            "✅ Confirm & Save to Batch History",
+            type="primary",
+            key="confirm_upload_btn",
+        ):
+            with st.spinner("Pushing to GitHub…"):
+                ok, fname = push_batch(uploaded_df, token, repo, HISTORY_FOLDER)
+            if ok:
+                st.session_state._comp_batches = None
+                st.success(f"✅ Saved to history: `{fname}`")
+                st.balloons()
+            else:
+                st.error("❌ Push failed. Check token permissions.")
+    except Exception as e:
+        st.error(f"Could not read file: {e}")
 
 st.divider()
 
