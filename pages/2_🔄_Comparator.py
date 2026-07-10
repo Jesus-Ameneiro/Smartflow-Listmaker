@@ -1122,6 +1122,54 @@ if output_df is not None:
                 st.balloons()
             else:
                 st.error("❌ Push failed. Check token permissions.")
+
+        st.divider()
+
+        # ── Option A: Upload & confirm an existing output file ────────────────
+        st.subheader("📁 Confirm from File")
+        st.caption(
+            "Lost your session after generating? Upload the previously downloaded "
+            "output CSV to confirm it directly to history."
+        )
+        upload_confirm = st.file_uploader(
+            "Upload output CSV to confirm",
+            type=["csv"],
+            key="upload_confirm_csv",
+        )
+        if upload_confirm is not None:
+            try:
+                uploaded_confirm_df = pd.read_csv(upload_confirm)
+                st.success(
+                    f"✅ File loaded: **{len(uploaded_confirm_df):,}** cases. "
+                    "Review below then confirm."
+                )
+                st.dataframe(
+                    uploaded_confirm_df.head(10),
+                    width="stretch",
+                    hide_index=True,
+                )
+                if len(uploaded_confirm_df) > 10:
+                    st.caption(f"Showing first 10 of {len(uploaded_confirm_df):,} rows.")
+
+                if st.button(
+                    "✅ Confirm Uploaded File to History",
+                    type="primary",
+                    key="confirm_upload_btn",
+                ):
+                    token, repo = _require_creds()
+                    with st.spinner("Pushing to GitHub…"):
+                        ok, fname = push_batch(
+                            uploaded_confirm_df, token, repo, HISTORY_FOLDER
+                        )
+                    if ok:
+                        st.session_state._confirmed_comp = True
+                        st.session_state._comp_batches   = None
+                        st.success(f"✅ File confirmed and saved to history: `{fname}`")
+                        st.balloons()
+                    else:
+                        st.error("❌ Push failed. Check token permissions.")
+            except Exception as e:
+                st.error(f"Could not read file: {e}")
     else:
         st.success("✅ This output has already been confirmed and saved to history.")
 
