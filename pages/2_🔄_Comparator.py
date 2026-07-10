@@ -119,8 +119,7 @@ with uc2:
 
 if sf_upload and sf_upload.name != st.session_state._sf_name:
     try:
-        sf_bytes = sf_upload.read()
-        st.session_state._sf_df   = load_smartflow(sf_bytes)
+        st.session_state._sf_df   = load_smartflow(sf_upload)
         st.session_state._sf_name = sf_upload.name
         st.session_state._diff_df = None
         st.session_state._outd_df = None
@@ -132,8 +131,7 @@ if sf_upload and sf_upload.name != st.session_state._sf_name:
 
 if pl_upload and pl_upload.name != st.session_state._pl_name:
     try:
-        pl_bytes = pl_upload.read()
-        st.session_state._pl_df   = load_pleteo(pl_bytes, pl_upload.name)
+        st.session_state._pl_df   = load_pleteo(pl_upload)
         st.session_state._pl_name = pl_upload.name
         st.session_state._diff_df = None
         st.session_state._outd_df = None
