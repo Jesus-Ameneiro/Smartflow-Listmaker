@@ -61,6 +61,7 @@ for k, v in {
     "_comp_updates_sha": None,
     "_history":          None,
     "_confirmed_ids":    None,
+    "_lookup_result":    None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
