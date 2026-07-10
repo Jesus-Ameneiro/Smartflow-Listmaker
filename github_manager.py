@@ -397,3 +397,50 @@ def get_all_confirmed_update_ids(history_records):
         if col:
             ids |= set(rec["df"][col].dropna().astype(str))
     return ids
+
+
+# ── Comparator Draft ──────────────────────────────────────────────────────────
+
+_DRAFT_PATH = "drafts_comparator/draft_latest.csv"
+
+
+def save_draft(df, token, repo):
+    """
+    Overwrite the comparator draft with the current output DataFrame.
+    Returns True on success.
+    """
+    sha, _ = _get_file_meta(token, repo, _DRAFT_PATH)
+    return _put_file(
+        token, repo, _DRAFT_PATH,
+        df.to_csv(index=False),
+        "Save comparator draft",
+        sha=sha,
+    )
+
+
+def load_draft(token, repo):
+    """
+    Load the comparator draft if it exists.
+    Returns (sha, DataFrame) or (None, None).
+    """
+    sha, content = _get_file_meta(token, repo, _DRAFT_PATH)
+    if content is None:
+        return None, None
+    try:
+        return sha, pd.read_csv(io.StringIO(content))
+    except Exception:
+        return None, None
+
+
+def delete_draft(token, repo):
+    """
+    Delete the comparator draft after confirmation.
+    Returns True on success.
+    """
+    sha, content = _get_file_meta(token, repo, _DRAFT_PATH)
+    if content is None:
+        return True   # already gone
+    url     = f"https://api.github.com/repos/{repo}/contents/{_DRAFT_PATH}"
+    payload = {"message": "Delete comparator draft after confirmation", "sha": sha}
+    resp    = requests.delete(url, json=payload, headers=_headers(token), timeout=15)
+    return resp.status_code == 200
