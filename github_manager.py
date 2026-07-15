@@ -394,3 +394,42 @@ def save_tag_preferences(include_tags, exclude_tags, token, repo):
         "Save tag preferences",
         sha=sha,
     )
+
+
+# ── Agent PIN store ───────────────────────────────────────────────────────────
+
+_PINS_PATH = "pins/agent_pins.json"
+
+
+def load_pins(token, repo):
+    """
+    Load agent PIN hashes from GitHub.
+    Returns dict: {email: sha256_hex} or {} if not found.
+    """
+    import json as _json
+    sha, content = _get_file_meta(token, repo, _PINS_PATH)
+    if content is None:
+        return {}
+    try:
+        return _json.loads(content)
+    except Exception:
+        return {}
+
+
+def save_pin(email, pin_hash, token, repo):
+    """
+    Save or update a PIN hash for an agent. Returns True on success.
+    """
+    import json as _json
+    sha, content = _get_file_meta(token, repo, _PINS_PATH)
+    try:
+        pins = _json.loads(content) if content else {}
+    except Exception:
+        pins = {}
+    pins[email] = pin_hash
+    return _put_file(
+        token, repo, _PINS_PATH,
+        _json.dumps(pins, indent=2),
+        f"Update PIN for {email}",
+        sha=sha,
+    )
