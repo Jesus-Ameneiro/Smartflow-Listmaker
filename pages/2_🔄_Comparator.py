@@ -23,10 +23,7 @@ from comparator import (
     load_pleteo,
     load_smartflow,
     outdated_status_report,
-    pleteo_country_dist,
-    pleteo_status_report,
     select_by_country_distribution,
-    smartflow_country_dist,
     validate_comparator_history,
 )
 from github_manager import (
@@ -234,92 +231,11 @@ if len(pl_df) < 5000:
 st.divider()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 2 — COUNTRY DISTRIBUTION
-# ─────────────────────────────────────────────────────────────────────────────
-st.header("2. Country Distribution")
-
-sf_countries = smartflow_country_dist(sf_df)
-pl_countries = pleteo_country_dist(pl_df, KNOWN_COUNTRIES)
-
-cc1, cc2 = st.columns(2)
-with cc1:
-    st.subheader("📡 Smartflow")
-    if sf_countries:
-        st.metric("Total Countries", len(sf_countries))
-        st.dataframe(
-            pd.DataFrame(sf_countries.items(), columns=["Country", "Cases"])
-              .sort_values("Cases", ascending=False),
-            width="stretch", hide_index=True,
-        )
-    else:
-        st.info("No country data found.")
-
-with cc2:
-    st.subheader("📋 Pleteo (from Tags)")
-    if pl_countries:
-        st.metric("Total Countries", len(pl_countries))
-        st.dataframe(
-            pd.DataFrame(pl_countries.items(), columns=["Country", "Cases"])
-              .sort_values("Cases", ascending=False),
-            width="stretch", hide_index=True,
-        )
-    else:
-        st.info("No country data found.")
-
-st.divider()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 3 — PLETEO INVESTIGATION STATUS REPORT
+# SECTION 2 — VALIDATE AGAINST HISTORY
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("3. Pleteo — Investigation Status Report")
-st.caption(
-    "Status and investigator data sourced exclusively from the Pleteo file. "
-    "Difference cases (not in Pleteo) have no status or investigator by definition."
-)
-
-status_report = pleteo_status_report(pl_df)
-
-sm1, sm2 = st.columns(2)
-sm1.metric("Cases with Investigation Status", status_report["cases_with_status"])
-sm2.metric("Cases with Assigned Investigator", status_report["cases_with_inv"])
-
-sr_left, sr_right = st.columns(2)
-
-with sr_left:
-    st.subheader("📊 Cases per Investigation Status")
-    if status_report["status_counts"]:
-        st.dataframe(
-            pd.DataFrame(
-                status_report["status_counts"].items(),
-                columns=["Investigation Status", "Cases"],
-            ).sort_values("Cases", ascending=False),
-            width="stretch", hide_index=True,
-        )
-    else:
-        st.info("No Investigation Status data found.")
-
-with sr_right:
-    st.subheader("👤 Cases per Investigator")
-    if status_report["investigator_counts"]:
-        st.dataframe(
-            pd.DataFrame(
-                status_report["investigator_counts"].items(),
-                columns=["Investigator", "Cases"],
-            ).sort_values("Cases", ascending=False),
-            width="stretch", hide_index=True,
-        )
-    else:
-        st.info("No Case Investigator assignments found.")
-
-st.divider()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 4 — VALIDATE AGAINST HISTORY
-# ─────────────────────────────────────────────────────────────────────────────
-st.header("4. Validate Against History")
+st.header("2. Validate Against History")
 st.caption(
     "Cases confirmed within the expiration window will be excluded. "
     "Cases outside the window are eligible for inclusion again."
@@ -387,9 +303,9 @@ st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 5 — COMPARISON REPORT
+# SECTION 3 — COMPARISON REPORT
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("5. Comparison Report")
+st.header("3. Comparison Report")
 
 sf_pool = sf_df[~sf_df["_case_id"].isin(excl_map.keys())].copy()
 
@@ -444,9 +360,9 @@ st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 6 — OUTPUT CONFIGURATION
+# SECTION 4 — OUTPUT CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("6. Output Configuration")
+st.header("4. Output Configuration")
 
 # ── Focus ─────────────────────────────────────────────────────────────────────
 st.subheader("Focus")
@@ -905,9 +821,9 @@ st.divider()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 7 — PREVIEW & GENERATE
+# SECTION 5 — PREVIEW & GENERATE
 # ─────────────────────────────────────────────────────────────────────────────
-st.header("7. Preview & Generate")
+st.header("5. Preview & Generate")
 
 override_limit = False
 if total_requested > MAX_CASES:
@@ -1093,9 +1009,9 @@ if output_df is not None:
     st.divider()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # SECTION 8 — CONFIRM & SAVE TO HISTORY
+    # SECTION 6 — CONFIRM & SAVE TO HISTORY
     # ─────────────────────────────────────────────────────────────────────────
-    st.header("8. Confirm & Save to History")
+    st.header("6. Confirm & Save to History")
     st.caption(
         "Confirming saves this output as a history record. "
         "These cases will be excluded from future outputs within the expiration window."
