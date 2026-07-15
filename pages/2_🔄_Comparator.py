@@ -100,6 +100,7 @@ for k, v in {
     "_comp_updates_sha":   None,
     "_draft_sha":          None,
     "_draft_restored":     False,
+    "_sel_reset":          0,
     "_tag_prefs":          None,
 }.items():
     if k not in st.session_state:
@@ -708,8 +709,9 @@ if pre_result is not None:
         hide_index=True,
         on_select="rerun",
         selection_mode="multi-row",
-        key="preview_sel",
+        key=f"preview_sel_{st.session_state._sel_reset}",
     )
+    _sel_key = f"preview_sel_{st.session_state._sel_reset}"
     selected_rows = (
         sel_event.selection.rows
         if sel_event and hasattr(sel_event, "selection") and sel_event.selection
@@ -723,6 +725,7 @@ if pre_result is not None:
         if btn1.button(f"🚫 Exclude Selected ({len(selected_rows)})", key="excl_sel_btn"):
             new_excl = set(active_preview.iloc[selected_rows]["Case ID"].tolist())
             st.session_state._excl_preview |= new_excl
+            st.session_state._sel_reset += 1
             st.rerun()
 
     if excl_preview and focused_pool is not None:
@@ -760,6 +763,7 @@ if pre_result is not None:
                 additions["Type"] = additions["Case ID"].apply(_tag_r)
                 refilled = pd.concat([active_preview, additions], ignore_index=True)
                 st.session_state._pre_result = refilled
+                st.session_state._sel_reset += 1
                 st.success(f"✅ Added {len(additions)} replacement case(s).")
                 st.rerun()
             else:
@@ -779,6 +783,7 @@ if pre_result is not None:
             if ok:
                 st.session_state._blacklist_df  = updated_bl
                 st.session_state._blacklist_sha = None
+                st.session_state._sel_reset += 1
                 st.success(f"✅ {len(rows_for_bl)} case(s) added to the black list.")
             else:
                 st.error("❌ Failed to save black list.")
@@ -786,6 +791,7 @@ if pre_result is not None:
     if excl_preview:
         if btn4.button("↩️ Clear Exclusions", key="clear_excl_btn"):
             st.session_state._excl_preview = set()
+            st.session_state._sel_reset += 1
             st.rerun()
 
     if excl_preview:
