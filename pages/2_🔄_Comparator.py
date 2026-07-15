@@ -391,21 +391,6 @@ if focus_outd:
         )
 
         outd_status_counts = outdated_status_report(outd_df, pl_df)
-        no_status_count    = outd_status_counts.get("No Status", 0)
-        has_status_count   = sum(v for k, v in outd_status_counts.items() if k != "No Status")
-
-        osm1, osm2 = st.columns(2)
-        osm1.metric("Outdated — No Status", no_status_count)
-        osm2.metric("Outdated — With Status", has_status_count)
-
-        st.dataframe(
-            pd.DataFrame(
-                outd_status_counts.items(),
-                columns=["Investigation Status", "Outdated Cases"],
-            ).sort_values("Outdated Cases", ascending=False),
-            width="stretch", hide_index=True,
-        )
-
         all_statuses = sorted(outd_status_counts.keys())
         include_statuses = st.multiselect(
             "Include cases with these statuses",
