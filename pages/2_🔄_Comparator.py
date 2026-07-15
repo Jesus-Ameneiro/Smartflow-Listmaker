@@ -366,12 +366,14 @@ st.header("4. Output Configuration")
 
 # ── Focus ─────────────────────────────────────────────────────────────────────
 st.subheader("Focus")
-focus_diff = st.checkbox("Include Difference cases", value=True,  key="focus_diff")
-focus_outd = st.checkbox("Include Outdated cases",   value=False, key="focus_outd")
-
-if not focus_diff and not focus_outd:
-    st.warning("⚠️ Select at least one focus to continue.")
-    st.stop()
+_focus_choice = st.radio(
+    "Select case type to include in output",
+    options=["Difference", "Outdated"],
+    horizontal=True,
+    key="focus_radio",
+)
+focus_diff = _focus_choice == "Difference"
+focus_outd = _focus_choice == "Outdated"
 
 # ── Outdated filters — only visible when Outdated focus is selected ──────────
 # Initialise outd_filtered as empty; only populated when focus_outd is active.
