@@ -361,3 +361,36 @@ def delete_draft(token, repo):
     payload = {"message": "Delete comparator draft after confirmation", "sha": sha}
     resp    = requests.delete(url, json=payload, headers=_headers(token), timeout=15)
     return resp.status_code == 200
+
+
+# ── Tag Preferences ───────────────────────────────────────────────────────────
+
+_TAG_PREFS_PATH = "history_comparator/tag_preferences.json"
+
+
+def load_tag_preferences(token, repo):
+    """
+    Load saved tag preferences. Returns dict with 'include' and 'exclude' lists,
+    or empty defaults if not found.
+    """
+    import json as _json
+    sha, content = _get_file_meta(token, repo, _TAG_PREFS_PATH)
+    if content is None:
+        return {"include": [], "exclude": []}
+    try:
+        return _json.loads(content)
+    except Exception:
+        return {"include": [], "exclude": []}
+
+
+def save_tag_preferences(include_tags, exclude_tags, token, repo):
+    """Save current tag selections as default preferences. Returns True on success."""
+    import json as _json
+    sha, _ = _get_file_meta(token, repo, _TAG_PREFS_PATH)
+    payload = _json.dumps({"include": list(include_tags), "exclude": list(exclude_tags)})
+    return _put_file(
+        token, repo, _TAG_PREFS_PATH,
+        payload,
+        "Save tag preferences",
+        sha=sha,
+    )
