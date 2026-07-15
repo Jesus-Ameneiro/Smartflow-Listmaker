@@ -200,36 +200,70 @@ if sf_df is None or pl_df is None:
     st.info("Upload both files to begin.")
     st.stop()
 
+# ── Stale cache guard ─────────────────────────────────────────────────────────
+# If computed columns are missing the cached df is from an older code version.
+# Clear it and ask the user to re-upload rather than crashing.
+_required_sf = {"_last_event", "_case_id", "_country", "_machines"}
+_required_pl = {"_last_event", "_case_id"}
+_stale = False
+if sf_df is not None and not _required_sf.issubset(sf_df.columns):
+    st.session_state._sf_df   = None
+    st.session_state._sf_name = None
+    _stale = True
+if pl_df is not None and not _required_pl.issubset(pl_df.columns):
+    st.session_state._pl_df   = None
+    st.session_state._pl_name = None
+    _stale = True
+if _stale:
+    st.warning(
+        "⚠️ Cached file data is outdated — this happens after an app update. "
+        "Please re-upload both files to continue."
+    )
+    st.stop()
+
 # ── File identity cards ───────────────────────────────────────────────────────
 fi1, fi2 = st.columns(2)
 
 with fi1:
-    sf_le_min = sf_df["_last_event"].min()
-    sf_le_max = sf_df["_last_event"].max()
-    st.success(
-        f"📡 **Smartflow** — `{st.session_state._sf_name}`\n\n"
-        f"- Cases: **{len(sf_df):,}**\n"
-        f"- Unique Case IDs: **{sf_df['_case_id'].nunique():,}**\n"
-        f"- Last Event range: "
-        f"**{sf_le_min.strftime('%Y-%m-%d') if pd.notna(sf_le_min) else '—'}** → "
-        f"**{sf_le_max.strftime('%Y-%m-%d') if pd.notna(sf_le_max) else '—'}**"
-    )
+    try:
+        sf_le_min = sf_df["_last_event"].min()
+        sf_le_max = sf_df["_last_event"].max()
+        st.success(
+            f"📡 **Smartflow** — `{st.session_state._sf_name}`\n\n"
+            f"- Cases: **{len(sf_df):,}**\n"
+            f"- Unique Case IDs: **{sf_df['_case_id'].nunique():,}**\n"
+            f"- Last Event range: "
+            f"**{sf_le_min.strftime('%Y-%m-%d') if pd.notna(sf_le_min) else '—'}** → "
+            f"**{sf_le_max.strftime('%Y-%m-%d') if pd.notna(sf_le_max) else '—'}**"
+        )
+    except Exception:
+        st.session_state._sf_df   = None
+        st.session_state._sf_name = None
+        st.warning("⚠️ Smartflow file could not be read. Please re-upload.")
+        st.stop()
 
 with fi2:
-    pl_le_min = pl_df["_last_event"].min()
-    pl_le_max = pl_df["_last_event"].max()
-    pl_note = ""
-    if len(pl_df) < 5000:
-        pl_note = "\n\n⚠️ **Small file detected — verify this is the full Pleteo export.**"
-    st.success(
-        f"📋 **Pleteo** — `{st.session_state._pl_name}`\n\n"
-        f"- Cases: **{len(pl_df):,}**\n"
-        f"- Unique Case IDs: **{pl_df['_case_id'].nunique():,}**\n"
-        f"- Last Event range: "
-        f"**{pl_le_min.strftime('%Y-%m-%d') if pd.notna(pl_le_min) else '—'}** → "
-        f"**{pl_le_max.strftime('%Y-%m-%d') if pd.notna(pl_le_max) else '—'}**"
-        f"{pl_note}"
-    )
+    try:
+        pl_le_min = pl_df["_last_event"].min()
+        pl_le_max = pl_df["_last_event"].max()
+        pl_note = ""
+        if len(pl_df) < 5000:
+            pl_note = "\n\n⚠️ **Small file detected — verify this is the full Pleteo export.**"
+        st.success(
+            f"📋 **Pleteo** — `{st.session_state._pl_name}`\n\n"
+            f"- Cases: **{len(pl_df):,}**\n"
+            f"- Unique Case IDs: **{pl_df['_case_id'].nunique():,}**\n"
+            f"- Last Event range: "
+            f"**{pl_le_min.strftime('%Y-%m-%d') if pd.notna(pl_le_min) else '—'}** → "
+            f"**{pl_le_max.strftime('%Y-%m-%d') if pd.notna(pl_le_max) else '—'}**"
+            f"{pl_note}"
+        )
+    except Exception:
+        st.session_state._pl_df   = None
+        st.session_state._pl_name = None
+        st.warning("⚠️ Pleteo file could not be read. Please re-upload.")
+        st.stop()
+
 
 if len(pl_df) < 5000:
     st.warning(
@@ -876,4 +910,3 @@ if output_df is not None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-
