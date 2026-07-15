@@ -34,7 +34,14 @@ st.set_page_config(
     layout="wide",
 )
 st.title("🔁 Case Update Prioritizer")
-st.caption("Ruvixx · LATAM Compliance Operations")
+_pg_agent = st.session_state.get("_agent_name", "Unknown")
+_pg_email = st.session_state.get("_agent_email", "")
+_pg_c1, _pg_c2 = st.columns([4, 1])
+_pg_c1.caption(f"Ruvixx · LATAM Compliance Operations · Signed in as **{_pg_agent}** ({_pg_email})")
+if _pg_c2.button("Sign Out", key="signout_pg"):
+    st.session_state._agent_name  = None
+    st.session_state._agent_email = None
+    st.rerun()
 
 # ── Credentials ───────────────────────────────────────────────────────────────
 def _gh_creds():
@@ -337,9 +344,11 @@ st.divider()
 # SECTION 7 — CONFIRM & SAVE
 # ─────────────────────────────────────────────────────────────────────────────
 st.header("6. Confirm Cases as Updated")
+_agent_p = st.session_state.get("_agent_name", "Unknown")
+_email_p = st.session_state.get("_agent_email", "")
 st.caption(
-    "Confirm when these cases have been manually updated in Pleteo. "
-    "They will be recorded in the Update History and can be excluded from future outputs."
+    f"Confirming as **{_agent_p}** ({_email_p}). "
+    "These cases will be recorded in the Update History and excluded from future outputs."
 )
 
 if not st.session_state._confirmed:
@@ -349,8 +358,13 @@ if not st.session_state._confirmed:
         key="confirm_btn",
     ):
         token_c, repo_c = _require_creds()
+        # Tag responsible agent before saving
+        save_df_p = output_df.copy()
+        save_df_p.insert(0, "Responsible",  st.session_state.get("_agent_name", "Unknown"))
+        save_df_p.insert(1, "Confirmed By", st.session_state.get("_agent_email", ""))
+        save_df_p.insert(2, "Confirmed At", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         with st.spinner("Saving to GitHub…"):
-            ok, fname = push_update_history(output_df, token_c, repo_c)
+            ok, fname = push_update_history(save_df_p, token_c, repo_c)
         if ok:
             st.session_state._confirmed       = True
             st.session_state._history         = None   # invalidate cache

@@ -28,7 +28,8 @@ from github_manager import (
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
-HISTORY_FOLDER = "history_comparator"
+HISTORY_FOLDER   = "history_comparator"
+DEFAULT_AGENT    = "Jesus Ameneiro"   # assigned to all pre-existing history
 
 st.set_page_config(
     page_title="Comparator History",
@@ -36,7 +37,14 @@ st.set_page_config(
     layout="wide",
 )
 st.title("📋 Comparator History & Blacklist")
-st.caption("Ruvixx · LATAM Compliance Operations")
+_hist_agent = st.session_state.get("_agent_name", "Unknown")
+_hist_email = st.session_state.get("_agent_email", "")
+c_title, c_signout = st.columns([4, 1])
+c_title.caption(f"Ruvixx · LATAM Compliance Operations · Signed in as **{_hist_agent}** ({_hist_email})")
+if c_signout.button("Sign Out", key="signout_hist"):
+    st.session_state._agent_name  = None
+    st.session_state._agent_email = None
+    st.rerun()
 
 # ── Credentials ───────────────────────────────────────────────────────────────
 def _gh_creds():
@@ -144,7 +152,11 @@ else:
         key="upd_inspect",
     )
     u_sel_b = next(b for b in upd_history if b["number"] == u_sel)
-    st.dataframe(u_sel_b["df"], width="stretch", hide_index=True)
+    _upd_disp = u_sel_b["df"].copy()
+    if "Responsible" not in _upd_disp.columns:
+        _upd_disp.insert(0, "Responsible", DEFAULT_AGENT)
+        _upd_disp.insert(1, "Confirmed By", "jesus@ruvixx.com")
+    st.dataframe(_upd_disp, width="stretch", hide_index=True)
 
     u_dl1, u_dl2 = st.columns(2)
     u_dl1.download_button(
@@ -242,12 +254,18 @@ else:
     st.dataframe(sel_batch["df"], width="stretch", hide_index=True)
 
     dl1, dl2 = st.columns(2)
+    _batch_disp = sel_batch["df"].copy()
+    if "Responsible" not in _batch_disp.columns:
+        _batch_disp.insert(0, "Responsible", DEFAULT_AGENT)
+        _batch_disp.insert(1, "Confirmed By", "jesus@ruvixx.com")
+    st.dataframe(_batch_disp, width="stretch", hide_index=True)
+
+    dl1, dl2 = st.columns(2)
     dl1.download_button(
         f"⬇️ Download Batch #{sel_num}",
         data=sel_batch["df"].to_csv(index=False).encode(),
         file_name=f"comparator_batch_{sel_num:03d}.csv",
         mime="text/csv",
-        key=f"dl_batch_{sel_num}",
     )
 
     # ── Download all combined ─────────────────────────────────────────────────

@@ -12,6 +12,7 @@ from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
+from datetime import datetime
 
 from comparator import (
     build_output,
@@ -55,7 +56,14 @@ st.set_page_config(
     layout="wide",
 )
 st.title("🔄 Smartflow Comparator")
-st.caption("Ruvixx · LATAM Compliance Operations")
+_pg_agent = st.session_state.get("_agent_name", "Unknown")
+_pg_email = st.session_state.get("_agent_email", "")
+_pg_c1, _pg_c2 = st.columns([4, 1])
+_pg_c1.caption(f"Ruvixx · LATAM Compliance Operations · Signed in as **{_pg_agent}** ({_pg_email})")
+if _pg_c2.button("Sign Out", key="signout_pg"):
+    st.session_state._agent_name  = None
+    st.session_state._agent_email = None
+    st.rerun()
 
 
 # ── Credentials ───────────────────────────────────────────────────────────────
@@ -830,9 +838,11 @@ if output_df is not None:
     # SECTION 6 — CONFIRM & SAVE TO HISTORY
     # ─────────────────────────────────────────────────────────────────────────
     st.header("6. Confirm & Save to History")
+    _agent = st.session_state.get("_agent_name", "Unknown")
+    _email = st.session_state.get("_agent_email", "")
     st.caption(
-        "Confirming saves this output as a history record. "
-        "These cases will be excluded from future outputs within the expiration window."
+        f"Confirming as **{_agent}** ({_email}). "
+        "This will be recorded on the batch and excluded from future outputs within the expiration window."
     )
 
     if not st.session_state._confirmed_comp:
@@ -842,8 +852,13 @@ if output_df is not None:
             key="confirm_comp",
         ):
             token, repo = _require_creds()
+            # Tag responsible agent before saving
+            save_df = output_df.copy()
+            save_df.insert(0, "Responsible",    st.session_state.get("_agent_name", "Unknown"))
+            save_df.insert(1, "Confirmed By",   st.session_state.get("_agent_email", ""))
+            save_df.insert(2, "Confirmed At",   datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             with st.spinner("Pushing to GitHub…"):
-                ok, fname = push_batch(output_df, token, repo, HISTORY_FOLDER)
+                ok, fname = push_batch(save_df, token, repo, HISTORY_FOLDER)
             if ok:
                 st.session_state._confirmed_comp = True
                 st.session_state._comp_batches   = None
@@ -863,3 +878,4 @@ if output_df is not None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+
