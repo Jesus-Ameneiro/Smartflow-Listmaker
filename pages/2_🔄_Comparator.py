@@ -29,11 +29,9 @@ from comparator import (
 )
 from github_manager import (
     add_to_blacklist,
-    confirm_cases_updated,
     delete_draft,
     get_all_batches,
     get_blacklist,
-    get_comp_updates_log,
     load_draft,
     load_tag_preferences,
     push_batch,

@@ -7,14 +7,12 @@ provides case ID lookup against confirmed batches.
 Session state is shared with the Smartflow Comparator page.
 """
 
-import json
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
 from github_manager import (
-    add_to_blacklist,
     confirm_cases_updated,
     delete_batch,
     delete_update_history,

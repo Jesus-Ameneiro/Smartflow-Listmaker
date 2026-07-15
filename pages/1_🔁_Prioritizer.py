@@ -6,7 +6,6 @@ Identifies outdated cases in Pleteo by comparing Last Event dates
 against Smartflow, and flags them by severity for prioritized updating.
 """
 
-import json
 from datetime import datetime
 
 import pandas as pd
