@@ -34,8 +34,10 @@ from github_manager import (
     get_blacklist,
     get_comp_updates_log,
     load_draft,
+    load_tag_preferences,
     push_batch,
     save_draft,
+    save_tag_preferences,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -99,6 +101,7 @@ for k, v in {
     "_comp_updates_sha":   None,
     "_draft_sha":          None,
     "_draft_restored":     False,
+    "_tag_prefs":          None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -163,6 +166,8 @@ if _bg_token and _bg_repo:
         _sha, _bl = get_blacklist(_bg_token, _bg_repo)
         st.session_state._blacklist_sha = _sha
         st.session_state._blacklist_df  = _bl
+    if st.session_state._tag_prefs is None:
+        st.session_state._tag_prefs = load_tag_preferences(_bg_token, _bg_repo)
 
 st.divider()
 
@@ -418,18 +423,27 @@ if focus_outd:
         st.subheader("🏷️ Outdated — Tag Filter")
         st.caption(
             "Filter the outdated pool by Pleteo tags. "
-            "Include and exclude filters can be applied simultaneously."
+            "Include and exclude filters can be applied simultaneously. "
+            "Use 💾 to save your selection as the default for future sessions."
         )
 
         available_tags = extract_tags_from_outdated(outd_filtered)
 
         if available_tags:
+            # Pre-populate from saved preferences on first render
+            prefs = st.session_state._tag_prefs or {"include": [], "exclude": []}
+            saved_inc = [t for t in prefs.get("include", []) if t in available_tags]
+            saved_exc = [t for t in prefs.get("exclude", []) if t in available_tags]
+            if "outd_inc_tags" not in st.session_state:
+                st.session_state["outd_inc_tags"] = saved_inc
+            if "outd_exc_tags" not in st.session_state:
+                st.session_state["outd_exc_tags"] = saved_exc
+
             tf1, tf2 = st.columns(2)
             with tf1:
                 include_tags = st.multiselect(
                     "Include — case must have ANY of these tags",
                     options=available_tags,
-                    default=[],
                     key="outd_inc_tags",
                     help="Leave empty to skip this filter.",
                 )
@@ -437,10 +451,24 @@ if focus_outd:
                 exclude_tags = st.multiselect(
                     "Exclude — remove cases with ANY of these tags",
                     options=available_tags,
-                    default=[],
                     key="outd_exc_tags",
                     help="Leave empty to skip this filter.",
                 )
+
+            # Save as default button
+            tc1, tc2 = st.columns([1, 5])
+            if tc1.button("💾 Save as Default", key="save_tag_prefs"):
+                _tp_token, _tp_repo = _gh_creds()
+                if _tp_token and _tp_repo:
+                    ok = save_tag_preferences(include_tags, exclude_tags, _tp_token, _tp_repo)
+                    if ok:
+                        st.session_state._tag_prefs = {
+                            "include": include_tags,
+                            "exclude": exclude_tags,
+                        }
+                        tc2.success("✅ Tag preferences saved.")
+                    else:
+                        tc2.error("❌ Failed to save preferences.")
 
             outd_filtered = filter_outdated_by_tags(outd_filtered, include_tags, exclude_tags)
 
