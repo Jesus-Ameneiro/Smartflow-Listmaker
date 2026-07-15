@@ -96,7 +96,6 @@ for k, v in {
     "_req_count":          0,        # Original requested count for refill
     "_blacklist_df":       None,     # Cached blacklist
     "_blacklist_sha":      None,
-    "_specific_verify_df": None,
     "_comp_updates_df":    None,
     "_comp_updates_sha":   None,
     "_draft_sha":          None,
@@ -498,229 +497,6 @@ if bl_df is not None and not bl_df.empty:
     if n_removed > 0:
         st.info(f"ℹ️ {n_removed} black-listed case(s) excluded from the pool.")
 
-st.divider()
-
-# ── Specific Case ID lookup ───────────────────────────────────────────────────
-if focus_outd and outd_df is not None and len(outd_df) > 0:
-    with st.expander("🎯 Update Specific Cases by ID", expanded=False):
-        st.caption(
-            "Paste Case IDs to verify if they are outdated and build a preview "
-            "directly from that list — bypassing country and status filters."
-        )
-
-        specific_input = st.text_area(
-            "Case IDs (comma-separated)",
-            placeholder="e.g. 648494#1, 957340#1, 884133#1",
-            height=90,
-            key="specific_ids_input",
-        )
-
-        if st.button("🔎 Verify Cases", key="verify_specific_btn") and specific_input.strip():
-            query_ids = [x.strip() for x in specific_input.split(",") if x.strip()]
-
-            # Lookups
-            pl_lookup_spec = (
-                pl_df[["_case_id", "_last_event", "_inv_status"]]
-                .drop_duplicates("_case_id").set_index("_case_id")
-            )
-            sf_lookup_spec = (
-                sf_df[["_case_id", "_last_event", "Organization Name", "Country",
-                        "No. ofMachines", "Case Status"]]
-                .drop_duplicates("_case_id").set_index("_case_id")
-            )
-
-            # Build batch index: case_id → {batch_number, confirmed_at}
-            batches_now = st.session_state._comp_batches or []
-            id_to_batch = {}
-            for b in batches_now:
-                col = next((c for c in ["Case ID","case_id"] if c in b["df"].columns), None)
-                if col is None: continue
-                for cid in b["df"][col].dropna().astype(str):
-                    if cid not in id_to_batch:
-                        id_to_batch[cid] = {
-                            "batch_number": b["number"],
-                            "confirmed_at": (
-                                b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                                if b["confirmed_at"] else "—"
-                            ),
-                        }
-
-            # Load updates log (cached)
-            if st.session_state._comp_updates_df is None:
-                token_ul, repo_ul = _gh_creds()
-                if token_ul and repo_ul:
-                    sha_ul, ul_df = get_comp_updates_log(token_ul, repo_ul)
-                    st.session_state._comp_updates_sha = sha_ul
-                    st.session_state._comp_updates_df  = ul_df
-            already_updated = set()
-            if st.session_state._comp_updates_df is not None:
-                already_updated = set(
-                    st.session_state._comp_updates_df["case_id"].astype(str)
-                )
-
-            rows = []
-            for qid in query_ids:
-                in_sf = qid in sf_lookup_spec.index
-                in_pl = qid in pl_lookup_spec.index
-                in_batch = qid in id_to_batch
-
-                sf_le = pd.to_datetime(
-                    sf_lookup_spec.loc[qid, "_last_event"] if in_sf else None,
-                    errors="coerce"
-                )
-                pl_le = pd.to_datetime(
-                    pl_lookup_spec.loc[qid, "_last_event"] if in_pl else None,
-                    errors="coerce"
-                )
-
-                org     = sf_lookup_spec.loc[qid, "Organization Name"] if in_sf else "—"
-                country = sf_lookup_spec.loc[qid, "Country"]           if in_sf else "—"
-
-                # Batch status
-                if in_batch:
-                    b_info = id_to_batch[qid]
-                    if qid in already_updated:
-                        batch_status = f"✅ Updated (Batch #{b_info['batch_number']})"
-                    else:
-                        batch_status = f"⏳ Pending (Batch #{b_info['batch_number']})"
-                else:
-                    batch_status = "—"
-
-                # Outdated result
-                if not in_sf and not in_pl:
-                    result = "❌ Not found in either file"
-                    days   = "—"
-                elif not in_pl:
-                    result = "⚠️ Not in Pleteo (Difference case)"
-                    days   = "—"
-                elif pd.isna(sf_le) or pd.isna(pl_le):
-                    result = "⚠️ Date missing"
-                    days   = "—"
-                elif sf_le > pl_le:
-                    days   = f"{(sf_le - pl_le).days:,} days"
-                    result = "✅ Outdated — needs update"
-                elif sf_le == pl_le:
-                    days   = "0 days"
-                    result = "🟡 Up to date"
-                else:
-                    days   = "—"
-                    result = "🟡 Pleteo is more recent"
-
-                rows.append({
-                    "Case ID":              qid,
-                    "Organization":         org,
-                    "Country":              country,
-                    "Smartflow Last Event": sf_le.strftime("%Y-%m-%d") if pd.notna(sf_le) else "—",
-                    "Pleteo Last Event":    pl_le.strftime("%Y-%m-%d") if pd.notna(pl_le) else "—",
-                    "Days Difference":      days,
-                    "Outdated Result":      result,
-                    "Batch Status":         batch_status,
-                })
-
-            spec_df = pd.DataFrame(rows)
-            st.session_state._specific_verify_df = spec_df
-
-        spec_df = st.session_state.get("_specific_verify_df")
-        if spec_df is not None and not spec_df.empty:
-            confirmed_outdated = spec_df[spec_df["Outdated Result"] == "✅ Outdated — needs update"]
-            pending_in_batch   = spec_df[spec_df["Batch Status"].str.startswith("⏳ Pending")]
-            already_upd_shown  = spec_df[spec_df["Batch Status"].str.startswith("✅ Updated")]
-
-            sv1, sv2, sv3, sv4 = st.columns(4)
-            sv1.metric("Queried",          len(spec_df))
-            sv2.metric("Confirmed Outdated", len(confirmed_outdated))
-            sv3.metric("Pending in Batch", len(pending_in_batch))
-            sv4.metric("Already Updated",  len(already_upd_shown))
-
-            st.dataframe(spec_df, width="stretch", hide_index=True)
-
-            # ── Confirm as Updated ────────────────────────────────────────────
-            if len(pending_in_batch) > 0:
-                st.divider()
-                st.markdown("**Confirm cases as updated in Pleteo**")
-                st.caption(
-                    "Select the cases below that have been successfully updated in Pleteo. "
-                    "This will be recorded in the comparator updates log."
-                )
-                pending_options = pending_in_batch["Case ID"].tolist()
-                to_confirm = st.multiselect(
-                    "Select cases to confirm as updated",
-                    options=pending_options,
-                    default=pending_options,
-                    key="confirm_upd_sel",
-                )
-                if to_confirm and st.button(
-                    f"✅ Confirm {len(to_confirm)} Case(s) as Updated",
-                    type="primary",
-                    key="confirm_upd_btn",
-                ):
-                    token_cu, repo_cu = _require_creds()
-                    batches_now2 = st.session_state._comp_batches or []
-                    id_to_batch2 = {}
-                    for b in batches_now2:
-                        col = next((c for c in ["Case ID","case_id"] if c in b["df"].columns), None)
-                        org_col = next((c for c in ["Organization Name","organization_name"] if c in b["df"].columns), None)
-                        if col is None: continue
-                        for cid in b["df"][col].dropna().astype(str):
-                            if cid not in id_to_batch2:
-                                org_val = "—"
-                                if org_col:
-                                    m = b["df"][b["df"][col].astype(str) == cid]
-                                    if not m.empty: org_val = m.iloc[0][org_col]
-                                id_to_batch2[cid] = {
-                                    "batch_number": b["number"],
-                                    "organization_name": org_val,
-                                }
-                    rows_to_confirm = []
-                    for cid in to_confirm:
-                        match_row = spec_df[spec_df["Case ID"] == cid]
-                        rows_to_confirm.append({
-                            "case_id":           cid,
-                            "organization_name": match_row.iloc[0]["Organization"] if not match_row.empty else "—",
-                            "country":           match_row.iloc[0]["Country"]       if not match_row.empty else "—",
-                            "batch_number":      id_to_batch2.get(cid, {}).get("batch_number", "—"),
-                        })
-                    with st.spinner("Saving confirmation…"):
-                        ok, updated_ul = confirm_cases_updated(rows_to_confirm, token_cu, repo_cu)
-                    if ok:
-                        st.session_state._comp_updates_df  = updated_ul
-                        st.session_state._comp_updates_sha = None
-                        # Refresh verify table to show updated status
-                        for idx, row in spec_df.iterrows():
-                            if row["Case ID"] in to_confirm:
-                                batch_n = id_to_batch2.get(row["Case ID"], {}).get("batch_number", "—")
-                                spec_df.at[idx, "Batch Status"] = f"✅ Updated (Batch #{batch_n})"
-                        st.session_state._specific_verify_df = spec_df
-                        st.success(f"✅ {len(to_confirm)} case(s) confirmed as updated.")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to save confirmation.")
-
-            # ── Generate preview ──────────────────────────────────────────────
-            if len(confirmed_outdated) > 0:
-                st.divider()
-                if st.button(
-                    f"⚙️ Generate Preview from {len(confirmed_outdated)} Outdated Case(s)",
-                    type="primary",
-                    key="gen_from_specific_btn",
-                ):
-                    confirmed_ids = set(confirmed_outdated["Case ID"].tolist())
-                    pre_from_spec = build_output(sf_pool, confirmed_ids)
-                    pre_from_spec["Type"] = "Outdated"
-                    st.session_state._pre_result      = pre_from_spec
-                    st.session_state._output_df       = None
-                    st.session_state._confirmed_comp  = False
-                    st.session_state._excl_preview    = set()
-                    st.session_state._focused_pool    = sf_pool.copy()
-                    st.session_state._country_alloc   = {}
-                    st.session_state._specific_verify_df = None
-                    st.success(
-                        f"✅ Preview generated with {len(confirmed_outdated)} case(s). "
-                        "Scroll down to Section 8."
-                    )
-
-st.divider()
-
 # ── Machine filter ────────────────────────────────────────────────────────────
 st.subheader("Machine Filter")
 st.caption(
@@ -802,6 +578,27 @@ if available_countries:
 
     if selected_countries:
         st.markdown("**Cases to include per country:**")
+
+        # ── Global value setter ───────────────────────────────────────────────
+        gc1, gc2, _ = st.columns([1.2, 1, 3])
+        with gc1:
+            global_val = st.number_input(
+                "Set all countries to",
+                min_value=0, max_value=MAX_CASES,
+                value=10, step=1,
+                key="global_alloc_val",
+                help="Applies to all selected countries. Capped at each country's available cases.",
+            )
+        with gc2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            apply_global = st.button("Apply to All", key="apply_global_alloc")
+
+        if apply_global:
+            for country in selected_countries:
+                available = country_case_counts.get(country, 0)
+                st.session_state[f"alloc_{country}"] = min(global_val, available)
+
+        # ── Per-country inputs ────────────────────────────────────────────────
         alloc_cols = st.columns(min(len(selected_countries), 4))
         for i, country in enumerate(selected_countries):
             available = country_case_counts.get(country, 0)
