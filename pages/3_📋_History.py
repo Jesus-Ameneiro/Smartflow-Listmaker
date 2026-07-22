@@ -164,14 +164,21 @@ else:
         mime="text/csv",
         key=f"dl_upd_{u_sel}",
     )
-    u_combined = pd.concat(
-        [b["df"].assign(**{
-            "Record #":     b["number"],
-            "Confirmed At": b["confirmed_at"].strftime("%Y-%m-%d %H:%M")
-                            if b["confirmed_at"] else "—",
-         }) for b in upd_history],
-        ignore_index=True,
-    )
+    _u_parts = []
+    for b in upd_history:
+        _up = b["df"].copy()
+        if "Record #" not in _up.columns:
+            _up.insert(0, "Record #", b["number"])
+        else:
+            _up["Record #"] = b["number"]
+        if "Confirmed At" not in _up.columns:
+            _up.insert(
+                min(1, len(_up.columns)),
+                "Confirmed At",
+                b["confirmed_at"].strftime("%Y-%m-%d %H:%M") if b["confirmed_at"] else "—",
+            )
+        _u_parts.append(_up)
+    u_combined = pd.concat(_u_parts, ignore_index=True)
     u_dl2.download_button(
         f"⬇️ Download All Records ({total_upd:,} cases)",
         data=u_combined.to_csv(index=False).encode(),
@@ -270,10 +277,18 @@ else:
     combined_parts = []
     for b in batches:
         part = b["df"].copy()
-        part.insert(0, "Batch #", b["number"])
-        part.insert(1, "Confirmed At",
-            b["confirmed_at"].strftime("%Y-%m-%d %H:%M") if b["confirmed_at"] else "—"
-        )
+        # Only insert columns that don't already exist in the saved CSV
+        # (newer batches already contain Responsible, Confirmed By, Confirmed At)
+        if "Batch #" not in part.columns:
+            part.insert(0, "Batch #", b["number"])
+        else:
+            part["Batch #"] = b["number"]
+        if "Confirmed At" not in part.columns:
+            part.insert(
+                min(1, len(part.columns)),
+                "Confirmed At",
+                b["confirmed_at"].strftime("%Y-%m-%d %H:%M") if b["confirmed_at"] else "—",
+            )
         combined_parts.append(part)
     combined_df = pd.concat(combined_parts, ignore_index=True)
     dl2.download_button(
