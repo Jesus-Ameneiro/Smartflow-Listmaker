@@ -12,7 +12,7 @@ from dateutil.relativedelta import relativedelta
 
 # Only load the columns we actually need — reduces memory by ~60%
 _SF_COLS = ["Case ID", "No. ofMachines", "Last Event", "Country",
-            "Organization Name", "Case Status", "Products"]
+            "Organization Name", "Case Status", "Products", "Website"]
 _PL_COLS = ["External Case ID", "Last Event", "Investigation Status",
             "Case Investigators", "Tags"]
 
@@ -173,6 +173,45 @@ def outdated_status_report(outd_df, pl_df):
     )
     statuses = outd_df["_case_id"].map(pl_lookup["_inv_status"]).fillna("No Status")
     return statuses.value_counts().to_dict()
+
+
+
+# ── Website-based category classification ─────────────────────────────────────
+
+import re as _re
+
+
+def classify_website(url: str) -> str:
+    """
+    Classify a website URL into a case category based on the domain.
+    Returns: 'Educational', 'Government', 'Non-Profit / Org', or 'Commercial'.
+    """
+    u = str(url).lower().strip()
+    if _re.search(r"\.edu(\.|/|$)", u): return "Educational"
+    if _re.search(r"\.ac\.",          u): return "Educational"
+    if _re.search(r"\.gov(\.|/|$)", u): return "Government"
+    if _re.search(r"\.gob(\.|/|$)", u): return "Government"
+    if _re.search(r"\.mil(\.|/|$)", u): return "Government"
+    if _re.search(r"\.org(\.|/|$)", u): return "Non-Profit / Org"
+    return "Commercial"
+
+
+def apply_website_filters(pool_df, exclude_edu: bool, exclude_gov: bool, exclude_npo: bool):
+    """
+    Exclude cases from pool_df whose Smartflow Website domain matches the
+    selected categories. Operates on the 'Website' column when present.
+    Returns filtered DataFrame.
+    """
+    if not (exclude_edu or exclude_gov or exclude_npo):
+        return pool_df
+    if "Website" not in pool_df.columns:
+        return pool_df
+    cats = pool_df["Website"].apply(classify_website)
+    mask = pd.Series(True, index=pool_df.index)
+    if exclude_edu: mask &= cats != "Educational"
+    if exclude_gov: mask &= cats != "Government"
+    if exclude_npo: mask &= cats != "Non-Profit / Org"
+    return pool_df[mask].reset_index(drop=True)
 
 
 # ── Core comparison ───────────────────────────────────────────────────────────
