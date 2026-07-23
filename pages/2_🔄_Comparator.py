@@ -15,6 +15,7 @@ import streamlit as st
 from datetime import datetime
 
 from comparator import (
+    apply_website_filters,
     build_output,
     extract_tags_from_outdated,
     filter_outdated_by_status,
@@ -584,6 +585,50 @@ st.info(
     f"({mach_min}–{mach_max} machines) across "
     f"**{focused_pool['_country'].nunique()}** countries."
 )
+
+st.divider()
+
+# ── Website Category Filters ──────────────────────────────────────────────────
+st.subheader("🌐 Website Category Filters")
+st.caption(
+    "Exclude cases based on their Smartflow website domain. "
+    "Applies to both Difference and Outdated cases — "
+    "more reliable than Pleteo tags since it covers cases with no tags at all."
+)
+
+_web_cols = st.columns(3)
+_excl_edu = _web_cols[0].toggle(
+    "🎓 Exclude Educational",
+    value=False,
+    key="excl_edu",
+    help="Excludes domains with .edu or .ac. extensions.",
+)
+_excl_gov = _web_cols[1].toggle(
+    "🏛️ Exclude Government",
+    value=False,
+    key="excl_gov",
+    help="Excludes domains with .gov, .gob, or .mil extensions.",
+)
+_excl_npo = _web_cols[2].toggle(
+    "🤝 Exclude Non-Profit / Org",
+    value=False,
+    key="excl_npo",
+    help="Excludes domains with .org extension.",
+)
+
+if _excl_edu or _excl_gov or _excl_npo:
+    _before = len(focused_pool)
+    focused_pool = apply_website_filters(focused_pool, _excl_edu, _excl_gov, _excl_npo)
+    _removed = _before - len(focused_pool)
+    if _removed > 0:
+        _labels = []
+        if _excl_edu: _labels.append("Educational")
+        if _excl_gov: _labels.append("Government")
+        if _excl_npo: _labels.append("Non-Profit / Org")
+        st.info(
+            f"ℹ️ **{_removed:,}** case(s) excluded by website category "
+            f"({', '.join(_labels)}). Pool: **{len(focused_pool):,}** remaining."
+        )
 
 st.divider()
 
