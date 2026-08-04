@@ -63,13 +63,14 @@ def months_diff(sf_date, pl_date):
 
 # ── File loaders ──────────────────────────────────────────────────────────────
 
-def load_smartflow(file_bytes: bytes):
-    """Load and prune Smartflow CSV from raw bytes. Only reads needed columns."""
-    avail = pd.read_csv(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
+def load_smartflow(src):
+    """Load and prune Smartflow CSV. Accepts raw bytes or a file-like object."""
+    raw = src if isinstance(src, (bytes, bytearray)) else src.read()
+    avail = pd.read_csv(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
     cols  = [c for c in _SF_COLS if c in avail]
     dtypes = {c: "category" for c in ["Country", "Case Status"] if c in cols}
     df = pd.read_csv(
-        io.BytesIO(file_bytes), usecols=cols,
+        io.BytesIO(raw), usecols=cols,
         dtype=dtypes, low_memory=False,
     )
     df.columns = [c.strip() for c in df.columns]
@@ -82,18 +83,23 @@ def load_smartflow(file_bytes: bytes):
     return df
 
 
-def load_pleteo(file_bytes: bytes, file_name: str = ""):
-    """Load and prune Pleteo file from raw bytes. Only reads needed columns."""
-    name = file_name.lower()
+def load_pleteo(src, file_name: str = ""):
+    """Load and prune Pleteo file. Accepts raw bytes or a file-like object."""
+    if isinstance(src, (bytes, bytearray)):
+        raw  = src
+        name = file_name.lower()
+    else:
+        raw  = src.read()
+        name = getattr(src, "name", file_name).lower()
     if name.endswith(".csv"):
-        avail = pd.read_csv(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
+        avail = pd.read_csv(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
         cols  = [c for c in _PL_COLS if c in avail]
-        df    = pd.read_csv(io.BytesIO(file_bytes), usecols=cols)
+        df    = pd.read_csv(io.BytesIO(raw), usecols=cols)
     elif name.endswith((".xlsx", ".xls")):
-        avail = pd.read_excel(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
+        avail = pd.read_excel(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
         cols  = [c for c in _PL_COLS if c in avail]
         df    = pd.read_excel(
-            io.BytesIO(file_bytes), usecols=cols,
+            io.BytesIO(raw), usecols=cols,
             engine="openpyxl",
         )
     else:
