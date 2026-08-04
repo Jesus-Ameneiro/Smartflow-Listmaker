@@ -85,6 +85,13 @@ def _require_creds():
 
 
 # ── Session defaults ──────────────────────────────────────────────────────────
+
+# ── Auth guard ────────────────────────────────────────────────────────────────
+if not st.session_state.get("_agent_name"):
+    st.warning("⚠️ You are not signed in. Please return to the main page to sign in.")
+    st.page_link("app.py", label="Go to Sign In", icon="🔐")
+    st.stop()
+
 for k, v in {
     "_sf_df":              None,
     "_pl_df":              None,
@@ -955,3 +962,4 @@ if output_df is not None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+
