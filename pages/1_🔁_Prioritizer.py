@@ -58,6 +58,15 @@ def _require_creds():
 
 # ── Session state ─────────────────────────────────────────────────────────────
 
+# ── Cached file loaders ────────────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def _load_sf(file_bytes: bytes):
+    return load_smartflow(file_bytes)
+
+@st.cache_data(show_spinner=False)
+def _load_pl(file_bytes: bytes, file_name: str):
+    return load_pleteo(file_bytes, file_name)
+
 # ── Auth guard ────────────────────────────────────────────────────────────────
 if not st.session_state.get("_agent_name"):
     st.warning("⚠️ You are not signed in. Please return to the main page to sign in.")
@@ -93,7 +102,9 @@ with uc2:
 
 if sf_up and sf_up.name != st.session_state._sf_name:
     try:
-        st.session_state._sf_df   = load_smartflow(sf_up)
+        with st.spinner(f"Reading Smartflow ({sf_up.size / 1e6:.1f} MB)…"):
+            _sf_bytes2 = sf_up.read()
+            st.session_state._sf_df   = _load_sf(_sf_bytes2)
         st.session_state._sf_name = sf_up.name
         st.session_state._results_df  = None
         st.session_state._outdated_df = None
@@ -104,7 +115,9 @@ if sf_up and sf_up.name != st.session_state._sf_name:
 
 if pl_up and pl_up.name != st.session_state._pl_name:
     try:
-        st.session_state._pl_df   = load_pleteo(pl_up)
+        with st.spinner(f"Reading Pleteo ({pl_up.size / 1e6:.1f} MB)…"):
+            _pl_bytes2 = pl_up.read()
+            st.session_state._pl_df   = _load_pl(_pl_bytes2, pl_up.name)
         st.session_state._pl_name = pl_up.name
         st.session_state._results_df  = None
         st.session_state._outdated_df = None
