@@ -63,12 +63,15 @@ def months_diff(sf_date, pl_date):
 
 # ── File loaders ──────────────────────────────────────────────────────────────
 
-def load_smartflow(uploaded_file):
-    """Load and prune Smartflow CSV. Only reads needed columns."""
-    raw   = uploaded_file.read()
-    avail = pd.read_csv(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
+def load_smartflow(file_bytes: bytes):
+    """Load and prune Smartflow CSV from raw bytes. Only reads needed columns."""
+    avail = pd.read_csv(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
     cols  = [c for c in _SF_COLS if c in avail]
-    df    = pd.read_csv(io.BytesIO(raw), usecols=cols, low_memory=False)
+    dtypes = {c: "category" for c in ["Country", "Case Status"] if c in cols}
+    df = pd.read_csv(
+        io.BytesIO(file_bytes), usecols=cols,
+        dtype=dtypes, low_memory=False,
+    )
     df.columns = [c.strip() for c in df.columns]
     if "Case ID" not in df.columns:
         raise ValueError("Smartflow file must contain a 'Case ID' column.")
@@ -79,18 +82,20 @@ def load_smartflow(uploaded_file):
     return df
 
 
-def load_pleteo(uploaded_file):
-    """Load and prune Pleteo file. Only reads needed columns."""
-    name = uploaded_file.name.lower()
-    raw  = uploaded_file.read()
+def load_pleteo(file_bytes: bytes, file_name: str = ""):
+    """Load and prune Pleteo file from raw bytes. Only reads needed columns."""
+    name = file_name.lower()
     if name.endswith(".csv"):
-        avail = pd.read_csv(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
+        avail = pd.read_csv(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
         cols  = [c for c in _PL_COLS if c in avail]
-        df    = pd.read_csv(io.BytesIO(raw), usecols=cols)
+        df    = pd.read_csv(io.BytesIO(file_bytes), usecols=cols)
     elif name.endswith((".xlsx", ".xls")):
-        avail = pd.read_excel(io.BytesIO(raw), nrows=0).columns.str.strip().tolist()
+        avail = pd.read_excel(io.BytesIO(file_bytes), nrows=0).columns.str.strip().tolist()
         cols  = [c for c in _PL_COLS if c in avail]
-        df    = pd.read_excel(io.BytesIO(raw), usecols=cols)
+        df    = pd.read_excel(
+            io.BytesIO(file_bytes), usecols=cols,
+            engine="openpyxl",
+        )
     else:
         raise ValueError("Unsupported Pleteo file type.")
     df.columns = [c.strip() for c in df.columns]
