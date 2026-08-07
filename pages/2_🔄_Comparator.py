@@ -86,15 +86,6 @@ def _require_creds():
 
 # ── Session defaults ──────────────────────────────────────────────────────────
 
-# ── Cached file loaders (defined here so @st.cache_data runs in page context) ─
-@st.cache_data(show_spinner=False)
-def _load_sf(file_bytes: bytes):
-    return load_smartflow(file_bytes)
-
-@st.cache_data(show_spinner=False)
-def _load_pl(file_bytes: bytes, file_name: str):
-    return load_pleteo(file_bytes, file_name)
-
 # ── Auth guard ────────────────────────────────────────────────────────────────
 if not st.session_state.get("_agent_name"):
     st.warning("⚠️ You are not signed in. Please return to the main page to sign in.")
@@ -148,8 +139,7 @@ with uc2:
 if sf_upload and sf_upload.name != st.session_state._sf_name:
     try:
         with st.spinner(f"Reading Smartflow ({sf_upload.size / 1e6:.1f} MB)…"):
-            _sf_bytes = sf_upload.read()
-            st.session_state._sf_df   = _load_sf(_sf_bytes)
+            st.session_state._sf_df   = load_smartflow(sf_upload)
         st.session_state._sf_name = sf_upload.name
         st.session_state._diff_df = None
         st.session_state._outd_df = None
@@ -162,8 +152,7 @@ if sf_upload and sf_upload.name != st.session_state._sf_name:
 if pl_upload and pl_upload.name != st.session_state._pl_name:
     try:
         with st.spinner(f"Reading Pleteo ({pl_upload.size / 1e6:.1f} MB)…"):
-            _pl_bytes = pl_upload.read()
-            st.session_state._pl_df   = _load_pl(_pl_bytes, pl_upload.name)
+            st.session_state._pl_df   = load_pleteo(pl_upload)
         st.session_state._pl_name = pl_upload.name
         st.session_state._diff_df = None
         st.session_state._outd_df = None
@@ -975,4 +964,3 @@ if output_df is not None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-
