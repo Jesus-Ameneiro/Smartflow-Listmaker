@@ -200,11 +200,31 @@ if (
         st.session_state._draft_sha      = _d_sha
         st.session_state._draft_restored = True
         st.session_state._confirmed_comp = False
-        st.warning(
-            "📋 **Draft recovered.** Your previous output was restored after the page "
-            "refreshed. Scroll to **Section 7 — Preview & Generate** to review and "
-            "confirm it, or generate a new output to replace it."
-        )
+
+# Show draft banner whenever a draft is active
+if st.session_state._draft_restored and st.session_state._output_df is not None:
+    _files_loaded = sf_df is not None and pl_df is not None
+    _banner = st.container()
+    with _banner:
+        _bc1, _bc2 = st.columns([5, 1])
+        if _files_loaded:
+            _bc1.warning(
+                "📋 **Draft recovered** — your previous output is ready below. "
+                "Upload files and proceed normally, or scroll to **Section 7** to confirm it."
+            )
+        else:
+            _bc1.warning(
+                "📋 **A saved draft was found** from a previous session. "
+                "Upload both files to continue working, or discard the draft to start fresh."
+            )
+        if _bc2.button("🗑️ Discard Draft", key="discard_draft_btn", use_container_width=True):
+            if _dr_token and _dr_repo:
+                delete_draft(_dr_token, _dr_repo)
+            st.session_state._output_df      = None
+            st.session_state._draft_sha      = None
+            st.session_state._draft_restored = False
+            st.session_state._confirmed_comp = False
+            st.rerun()
 
 if sf_df is None or pl_df is None:
     st.info("Upload both files to begin.")
