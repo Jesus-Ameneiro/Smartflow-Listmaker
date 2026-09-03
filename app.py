@@ -19,8 +19,10 @@ st.set_page_config(
 
 # ── Agent registry ─────────────────────────────────────────────────────────────
 AGENTS = {
-    "jesus@ruvixx.com":        "Jesus Ameneiro",
-    "luisindriago@ruvixx.com": "Luis Indriago",
+    "jesus@ruvixx.com":          "Jesus Ameneiro",
+    "luisindriago@ruvixx.com":   "Luis Indriago",
+    "claramartinez@ruvixx.com":  "Clara Martinez",
+    "maria@ruvixx.com":          "Daniela Suros",
 }
 DEFAULT_AGENT   = "Jesus Ameneiro"
 MAX_ATTEMPTS    = 3
