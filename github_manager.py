@@ -122,12 +122,12 @@ _BLACKLIST_PATH = "history_comparator/blacklist.csv"
 _BLACKLIST_COLS = ["case_id", "organization_name", "country", "added_at"]
 
 
-def get_blacklist(token, repo):
+def get_blacklist(token, repo, path=_BLACKLIST_PATH):
     """
     Load blacklist.csv from GitHub.
     Returns (sha_or_None, DataFrame).
     """
-    sha, content = _get_file_meta(token, repo, _BLACKLIST_PATH)
+    sha, content = _get_file_meta(token, repo, path)
     if content is None:
         return None, pd.DataFrame(columns=_BLACKLIST_COLS)
     try:
@@ -136,22 +136,22 @@ def get_blacklist(token, repo):
         return sha, pd.DataFrame(columns=_BLACKLIST_COLS)
 
 
-def save_blacklist(df, token, repo, sha=None):
+def save_blacklist(df, token, repo, sha=None, path=_BLACKLIST_PATH):
     """Create or update blacklist.csv. Returns True on success."""
     return _put_file(
-        token, repo, _BLACKLIST_PATH,
+        token, repo, path,
         df.to_csv(index=False),
         "Update comparator blacklist",
         sha=sha,
     )
 
 
-def add_to_blacklist(case_rows, token, repo):
+def add_to_blacklist(case_rows, token, repo, path=_BLACKLIST_PATH):
     """
     Add a list of dicts {case_id, organization_name, country} to the blacklist.
     Returns (success, updated_df).
     """
-    sha, existing = get_blacklist(token, repo)
+    sha, existing = get_blacklist(token, repo, path=path)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_rows = []
     existing_ids = set(existing["case_id"].astype(str)) if not existing.empty else set()
@@ -168,22 +168,22 @@ def add_to_blacklist(case_rows, token, repo):
     updated = pd.concat(
         [existing, pd.DataFrame(new_rows)], ignore_index=True
     )
-    ok = save_blacklist(updated, token, repo, sha=sha)
+    ok = save_blacklist(updated, token, repo, sha=sha, path=path)
     return ok, updated
 
 
-def remove_from_blacklist(case_ids_to_remove, token, repo):
+def remove_from_blacklist(case_ids_to_remove, token, repo, path=_BLACKLIST_PATH):
     """
     Remove specific case_ids from the blacklist.
     Returns (success, updated_df).
     """
-    sha, existing = get_blacklist(token, repo)
+    sha, existing = get_blacklist(token, repo, path=path)
     if existing.empty:
         return True, existing
     updated = existing[
         ~existing["case_id"].astype(str).isin(set(str(i) for i in case_ids_to_remove))
     ].reset_index(drop=True)
-    ok = save_blacklist(updated, token, repo, sha=sha)
+    ok = save_blacklist(updated, token, repo, sha=sha, path=path)
     return ok, updated
 
 
@@ -194,9 +194,9 @@ _COMP_UPDATES_COLS = ["case_id", "organization_name", "country",
                       "batch_number", "confirmed_at"]
 
 
-def get_comp_updates_log(token, repo):
+def get_comp_updates_log(token, repo, path=_COMP_UPDATES_PATH):
     """Load comparator updates log. Returns (sha_or_None, DataFrame)."""
-    sha, content = _get_file_meta(token, repo, _COMP_UPDATES_PATH)
+    sha, content = _get_file_meta(token, repo, path)
     if content is None:
         return None, pd.DataFrame(columns=_COMP_UPDATES_COLS)
     try:
@@ -205,23 +205,23 @@ def get_comp_updates_log(token, repo):
         return None, pd.DataFrame(columns=_COMP_UPDATES_COLS)
 
 
-def push_comp_updates_log(df, token, repo, sha=None):
+def push_comp_updates_log(df, token, repo, sha=None, path=_COMP_UPDATES_PATH):
     """Create or update comparator updates log. Returns True on success."""
     return _put_file(
-        token, repo, _COMP_UPDATES_PATH,
+        token, repo, path,
         df.to_csv(index=False),
         "Update comparator updates log",
         sha=sha,
     )
 
 
-def confirm_cases_updated(case_rows, token, repo):
+def confirm_cases_updated(case_rows, token, repo, path=_COMP_UPDATES_PATH):
     """
     Mark cases as confirmed-updated in the comparator updates log.
     case_rows: list of dicts with case_id, organization_name, country, batch_number.
     Returns (success, updated_df).
     """
-    sha, existing = get_comp_updates_log(token, repo)
+    sha, existing = get_comp_updates_log(token, repo, path=path)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     existing_ids = set(existing["case_id"].astype(str)) if not existing.empty else set()
 
@@ -239,7 +239,7 @@ def confirm_cases_updated(case_rows, token, repo):
     if not new_rows:
         return True, existing
     updated = pd.concat([existing, pd.DataFrame(new_rows)], ignore_index=True)
-    ok = push_comp_updates_log(updated, token, repo, sha=sha)
+    ok = push_comp_updates_log(updated, token, repo, sha=sha, path=path)
     return ok, updated
 
 
@@ -321,26 +321,26 @@ def get_all_confirmed_update_ids(history_records):
 _DRAFT_PATH = "drafts_comparator/draft_latest.csv"
 
 
-def save_draft(df, token, repo):
+def save_draft(df, token, repo, path=_DRAFT_PATH):
     """
     Overwrite the comparator draft with the current output DataFrame.
     Returns True on success.
     """
-    sha, _ = _get_file_meta(token, repo, _DRAFT_PATH)
+    sha, _ = _get_file_meta(token, repo, path)
     return _put_file(
-        token, repo, _DRAFT_PATH,
+        token, repo, path,
         df.to_csv(index=False),
         "Save comparator draft",
         sha=sha,
     )
 
 
-def load_draft(token, repo):
+def load_draft(token, repo, path=_DRAFT_PATH):
     """
     Load the comparator draft if it exists.
     Returns (sha, DataFrame) or (None, None).
     """
-    sha, content = _get_file_meta(token, repo, _DRAFT_PATH)
+    sha, content = _get_file_meta(token, repo, path)
     if content is None:
         return None, None
     try:
@@ -349,15 +349,15 @@ def load_draft(token, repo):
         return None, None
 
 
-def delete_draft(token, repo):
+def delete_draft(token, repo, path=_DRAFT_PATH):
     """
     Delete the comparator draft after confirmation.
     Returns True on success.
     """
-    sha, content = _get_file_meta(token, repo, _DRAFT_PATH)
+    sha, content = _get_file_meta(token, repo, path)
     if content is None:
         return True   # already gone
-    url     = f"https://api.github.com/repos/{repo}/contents/{_DRAFT_PATH}"
+    url     = f"https://api.github.com/repos/{repo}/contents/{path}"
     payload = {"message": "Delete comparator draft after confirmation", "sha": sha}
     resp    = requests.delete(url, json=payload, headers=_headers(token), timeout=15)
     return resp.status_code == 200
@@ -368,13 +368,13 @@ def delete_draft(token, repo):
 _TAG_PREFS_PATH = "history_comparator/tag_preferences.json"
 
 
-def load_tag_preferences(token, repo):
+def load_tag_preferences(token, repo, path=_TAG_PREFS_PATH):
     """
     Load saved tag preferences. Returns dict with 'include' and 'exclude' lists,
     or empty defaults if not found.
     """
     import json as _json
-    sha, content = _get_file_meta(token, repo, _TAG_PREFS_PATH)
+    sha, content = _get_file_meta(token, repo, path)
     if content is None:
         return {"include": [], "exclude": []}
     try:
@@ -383,13 +383,13 @@ def load_tag_preferences(token, repo):
         return {"include": [], "exclude": []}
 
 
-def save_tag_preferences(include_tags, exclude_tags, token, repo):
+def save_tag_preferences(include_tags, exclude_tags, token, repo, path=_TAG_PREFS_PATH):
     """Save current tag selections as default preferences. Returns True on success."""
     import json as _json
-    sha, _ = _get_file_meta(token, repo, _TAG_PREFS_PATH)
+    sha, _ = _get_file_meta(token, repo, path)
     payload = _json.dumps({"include": list(include_tags), "exclude": list(exclude_tags)})
     return _put_file(
-        token, repo, _TAG_PREFS_PATH,
+        token, repo, path,
         payload,
         "Save tag preferences",
         sha=sha,

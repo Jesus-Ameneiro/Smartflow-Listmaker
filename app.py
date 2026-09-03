@@ -167,9 +167,16 @@ if not st.session_state._agent_name:
     st.rerun()
 
 # ── Navigation (only reached when authenticated) ───────────────────────────────
-pg = st.navigation([
-    st.Page("pages/1_🔁_Prioritizer.py", title="Case Update Prioritizer", icon="🔁"),
-    st.Page("pages/2_🔄_Comparator.py",  title="Smartflow Comparator",    icon="🔄"),
-    st.Page("pages/3_📋_History.py",      title="History & Blacklist",     icon="📋"),
-])
+pg = st.navigation({
+    "SketchUp": [
+        st.Page("pages/sketchup/Prioritizer.py", title="Case Update Prioritizer", icon="🔁"),
+        st.Page("pages/sketchup/Comparator.py",  title="Smartflow Comparator",    icon="🔄"),
+        st.Page("pages/sketchup/History.py",     title="History & Blacklist",     icon="📋"),
+    ],
+    "Tekla": [
+        st.Page("pages/tekla/Prioritizer.py",    title="Case Update Prioritizer", icon="🔁"),
+        st.Page("pages/tekla/Comparator.py",     title="Smartflow Comparator",    icon="🔄"),
+        st.Page("pages/tekla/History.py",        title="History & Blacklist",     icon="📋"),
+    ],
+})
 pg.run()
