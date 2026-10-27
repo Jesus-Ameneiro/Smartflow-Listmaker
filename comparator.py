@@ -389,3 +389,114 @@ def select_by_country_distribution(sf_df, country_alloc):
         ids  = pool["_case_id"].head(int(n)).tolist()
         selected.update(ids)
     return selected
+
+
+# ── Case Type (machine-count class) ───────────────────────────────────────────
+# Additive helpers used by the SketchUp pages only. Nothing above this line was
+# changed, so the Tekla pages that import from this module behave as before.
+
+def case_type_from_machines(value) -> str:
+    """
+    'HIGH' when the case has 3 or more machines, 'LOW' when it has 1 or 2.
+    Returns '' (blank) for a missing, unparseable or zero/negative count —
+    the rule defines no class for those, so none is invented.
+    Handles thousands separators ("1,234") and float-typed values (3.0).
+    """
+    try:
+        n = float(str(value).replace(",", "").strip())
+    except (ValueError, TypeError):
+        return ""
+    if n != n:          # NaN
+        return ""
+    if n >= 3:
+        return "HIGH"
+    if n >= 1:
+        return "LOW"
+    return ""
+
+
+def add_case_type_column(df, machines_col="No. ofMachines"):
+    """
+    Return a copy of `df` with a 'Case Type' column (HIGH / LOW) inserted
+    immediately BEFORE `machines_col` — i.e. right after the Country column in
+    both the Comparator and the Prioritizer output layouts.
+    If the column already exists it is recomputed in place of the old one.
+    If `machines_col` is absent the frame is returned unchanged.
+    """
+    out = df.copy()
+    if machines_col not in out.columns:
+        return out
+    if "Case Type" in out.columns:
+        out = out.drop(columns=["Case Type"])
+    pos = out.columns.get_loc(machines_col)
+    out.insert(pos, "Case Type", out[machines_col].map(case_type_from_machines))
+    return out
+
+
+# ── Output Configuration — one-pass filter pipeline ──────────────────────────
+
+def _filter_tags_safe(df, include_tags, exclude_tags):
+    """
+    Same result as filter_outdated_by_tags (include, then exclude) but safe when
+    a step leaves zero rows. The shared function returns a frame with NO columns
+    when its exclude step runs on an already-empty frame, which then breaks any
+    later df["_case_id"] lookup. Left untouched so the Tekla pages are unaffected.
+    """
+    if include_tags and len(df):
+        df = filter_outdated_by_tags(df, include_tags, [])
+    if exclude_tags and len(df):
+        df = filter_outdated_by_tags(df, [], exclude_tags)
+    return df
+
+
+def apply_output_filters(
+    sf_pool, diff_df, outd_df, focus,
+    include_statuses=None, include_tags=None, exclude_tags=None,
+    blacklist_ids=None, mach_min=None, mach_max=None,
+    excl_edu=False, excl_gov=False, excl_npo=False,
+):
+    """
+    Run the whole Output Configuration filter pass in one call.
+
+    focus: "Difference" or "Outdated" (mutually exclusive, as in the UI).
+    Order: focus pool -> [status -> tags, Outdated only] -> black list ->
+           machine range -> website category.
+    An empty include_statuses means "all statuses" (same as before).
+
+    Returns (focused_pool, steps) where `steps` is a list of
+    (label, n_cases) describing how many cases survived each stage.
+    """
+    steps = []
+
+    if focus == "Difference":
+        pool_ids = set(diff_df["_case_id"])
+        steps.append(("Difference cases", len(pool_ids)))
+    else:
+        steps.append(("Outdated cases", len(outd_df)))
+        outd = filter_outdated_by_status(outd_df, include_statuses)
+        steps.append(("After status filter", len(outd)))
+        outd = _filter_tags_safe(outd, include_tags or [], exclude_tags or [])
+        steps.append(("After tag filter", len(outd)))
+        pool_ids = set(outd["_case_id"])
+
+    pool = sf_pool[sf_pool["_case_id"].isin(pool_ids)]
+    steps.append(("In Smartflow pool", len(pool)))
+
+    if blacklist_ids:
+        pool = pool[~pool["_case_id"].isin(set(blacklist_ids))]
+    steps.append(("After black list", len(pool)))
+
+    if mach_min is not None and mach_max is not None:
+        if mach_max < mach_min:
+            pool = pool.iloc[0:0]
+        elif mach_max == mach_min:
+            pool = pool[pool["_machines"] == mach_min]
+        else:
+            pool = pool[(pool["_machines"] >= mach_min) & (pool["_machines"] <= mach_max)]
+        steps.append((f"After machine filter ({mach_min}–{mach_max})", len(pool)))
+
+    if excl_edu or excl_gov or excl_npo:
+        pool = apply_website_filters(pool, excl_edu, excl_gov, excl_npo)
+        steps.append(("After website filters", len(pool)))
+
+    return pool.reset_index(drop=True), steps
